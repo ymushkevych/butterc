@@ -34,7 +34,7 @@ bash ./buildsudo.sh # this will build the executable and move it into your binar
 
 If you do not have sudo (admin) permissions, run
 
-```
+```bash
 cd ./build # move into the build directory
 bash ./build.sh
 ```
