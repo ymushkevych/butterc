@@ -286,7 +286,7 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
         for substring in expr {
             if substring.chars().nth(0) == Some('"') {
                 //include quotation marks to avoid confusion with variable names. 
-                for ch in substring[0..substring.len()-1].chars() {
+                for ch in substring.chars() {
                     buf.push(ch);
                     if buf.len() == 9 {
                         if buf[buf.len()-1] != '"' {
