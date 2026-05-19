@@ -279,30 +279,24 @@ fn parse_bin_mult(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
 fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
     if prt_type == &"prf".to_string() {
-        let mut buf: Vec<char> = vec![];
         stmt.push("prf".to_string());
+        let mut buf: Vec<char> = vec![];
         for substring in expr {
-            let mut i = 0;
-            while i < substring.len() {
-                let ch: char = substring.chars().nth(i);
-                if ch == Some('"') {
+            if substring.chars().nth(0) == Some('"') {
+                //include quotation marks to avoid confusion with variable names. 
+                for ch in substring[0..substring.len()-1].chars() {
+                    buf.push(ch);
                     if buf.len() == 8 {
-                        buf.clear();    
-                    } else {
-                        buf.push(ch.unwrap());
+                        stmt.push(buf.iter().collect());
+                        buf.clear();
                     }
-                    i += 1;
-                    while char[i] != Some('"') {
-                        let ch: char = substring.chars().nth(i);
-                        if buf.len() == 8 {
-                            buf.clear();    
-                        } else {
-                            buf.push(ch.unwrap());
-                        }   
-                    }
-                } else {
-                    
-                }    
+                }
+                if buf.len() > 8 {
+                    stmt.push(buf.iter().collect());
+                    buf.clear();
+                }
+            } else {
+                stmt.push(substring);
             }
         }
     } else {
