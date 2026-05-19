@@ -281,22 +281,30 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     if prt_type == &"prf".to_string() {
         stmt.push("prf".to_string());
         let mut buf: Vec<char> = vec![];
+        let conc = expr.concat();
+        let terms:Vec<&str> = conc.split("AMP").collect();
         for substring in expr {
             if substring.chars().nth(0) == Some('"') {
                 //include quotation marks to avoid confusion with variable names. 
                 for ch in substring[0..substring.len()-1].chars() {
                     buf.push(ch);
-                    if buf.len() == 8 {
+                    if buf.len() == 9 {
+                        if buf[buf.len()-1] != '"' {
+                            buf.push('"');
+                        }
                         stmt.push(buf.iter().collect());
                         buf.clear();
                     }
                 }
-                if buf.len() > 8 {
+                if buf.len() > 0 {
+                    if buf[buf.len()-1] != '"' {
+                        buf.push('"');
+                    }
                     stmt.push(buf.iter().collect());
                     buf.clear();
                 }
             } else {
-                stmt.push(substring);
+                stmt.push(substring.to_string());
             }
         }
     } else {
