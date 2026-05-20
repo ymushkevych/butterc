@@ -280,17 +280,26 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
     if prt_type == &"prf".to_string() {
         stmt.push("prf".to_string());
-        let mut buf: Vec<char> = vec![];
         let conc = expr.concat();
-        let terms:Vec<&str> = conc.split("AMP").collect();
-        for substring in expr {
-            if substring.chars().nth(0) == Some('"') {
+        let terms: Vec<&str> = conc.split("AMP").collect();
+        let mut buf: Vec<char> = vec![];
+        let mut _type = "var";
+        for substring in terms {
+            if substring.chars().nth(0) == Some('"') || _type == "str" {
+                _type = "str";
                 //include quotation marks to avoid confusion with variable names. 
                 for ch in substring.chars() {
+                    if buf.len() == 0 {
+                        if ch != '"' {
+                            buf.push('"');
+                        }
+                    }
                     buf.push(ch);
                     if buf.len() == 9 {
                         if buf[buf.len()-1] != '"' {
                             buf.push('"');
+                        } else {
+                            _type = "var";
                         }
                         stmt.push(buf.iter().collect());
                         buf.clear();
@@ -299,6 +308,8 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
                 if buf.len() > 0 {
                     if buf[buf.len()-1] != '"' {
                         buf.push('"');
+                    } else {
+                        _type = "var";
                     }
                     stmt.push(buf.iter().collect());
                     buf.clear();
