@@ -279,7 +279,45 @@ fn parse_bin_mult(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
 fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
     if prt_type == &"prf".to_string() {
-        exit(11);
+        stmt.push("prf".to_string());
+        let conc = expr.concat();
+        let terms: Vec<&str> = conc.split("AMP").collect();
+        let mut buf: Vec<char> = vec![];
+        let mut _type = "var";
+        for substring in terms {
+            if substring.chars().nth(0) == Some('"') || _type == "str" {
+                _type = "str";
+                //include quotation marks to avoid confusion with variable names. 
+                for ch in substring.chars() {
+                    if buf.len() == 0 {
+                        if ch != '"' {
+                            buf.push('"');
+                        }
+                    }
+                    buf.push(ch);
+                    if buf.len() == 9 {
+                        if buf[buf.len()-1] != '"' {
+                            buf.push('"');
+                        } else {
+                            _type = "var";
+                        }
+                        stmt.push(buf.iter().collect());
+                        buf.clear();
+                    }
+                }
+                if buf.len() > 0 {
+                    if buf[buf.len()-1] != '"' {
+                        buf.push('"');
+                    } else {
+                        _type = "var";
+                    }
+                    stmt.push(buf.iter().collect());
+                    buf.clear();
+                }
+            } else {
+                stmt.push(substring.to_string());
+            }
+        }
     } else {
         if expr.len() > 1 {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Unformatted print statements use only one text argument.\nFor variable usage and string addition, use `prf`");
