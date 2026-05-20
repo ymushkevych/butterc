@@ -56,6 +56,55 @@ fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String
     return asm;
 }
 
+fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>, mut asm: Vec<String>) -> Vec<String> {
+    let mut stmt: Vec<String> = vec![];
+    for term in prf {
+        asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+        if term.chars().nth(0) == Some('"') {
+            for i in 1..term.len()-1 {
+                let ch = term.chars().nth(i).unwrap();
+                stmt.insert(0, format!("('{}' << {})", ch, (i-1) * 8));
+                if i == term.len()-2 {
+                    asm = move_to_stack(&"rax".to_string(), &stmt.join("+"), asm);
+                    stmt.clear();
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 1".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", i+1));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                }
+            }
+        } else {
+            if !vars.contains_key(term) {
+                eprintln!("\x1b[1mParserError\x1b[0m: used undefined or inaccessible variable `{}`", term);
+                exit(1);
+            }
+            asm.push(format!("    mov rax, [rsp + {}]", vars.get(term).unwrap()+8));
+            asm.push(format!("    add rax, 48"));
+            asm.push(format!("    shl rax, {}", 8));
+            asm.push(format!("    mov rbx, ('' << {})", 0));
+            asm.push(format!("    or rax, rbx"));
+            asm.push("    push rax".to_string());
+            asm.push("    mov rax, 1".to_string());
+            asm.push("    mov rdi, 1".to_string());
+            asm.push("    mov rsi, rsp".to_string());
+            asm.push(format!("    mov rdx, {}", 2));
+            asm.push("    syscall".to_string());
+            asm.push("    add rsp, 16".to_string());
+        }
+    }
+    asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+    asm = move_to_stack(&"rax".to_string(), &format!("(10 << 8) + ('' << 0)"), asm);
+    asm.push("    mov rax, 1".to_string());
+    asm.push("    mov rdi, 1".to_string());
+    asm.push("    mov rsi, rsp".to_string());
+    asm.push(format!("    mov rdx, {}", 2));
+    asm.push("    syscall".to_string());
+    asm.push("    add rsp, 16".to_string());
+    return asm;
+}
+
 
 fn gen_fnc_call(name: &String, args: &[String], mut asm: Vec<String>) -> Vec<String> {
     if !args.contains(&"NONE".to_string()) {
