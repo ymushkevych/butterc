@@ -51,7 +51,7 @@ fn get_stack_height(vars: &HashMap<String, i32>) -> i32 {
 
 fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String>  {
     asm.push("    mov ".to_string() + reg + ", " + val);
-    asm.push("    push qword [rsp]".to_string() + reg);
+    asm.push("    push ".to_string() + reg);
     
     return asm;
 }
@@ -137,7 +137,7 @@ fn gen_ret(ret_val: &[String], vars: &HashMap<String, i32>, mut asm: Vec<String>
             }
         }
     }
-    asm.push("    pop rbp".to_string());
+    asm.push(format!("    add rsp, {}", get_stack_height(vars)*8));
     asm.push("    ret".to_string());
 
     return asm;
@@ -145,8 +145,6 @@ fn gen_ret(ret_val: &[String], vars: &HashMap<String, i32>, mut asm: Vec<String>
 
 fn gen_fnc_dec(name: &String, mut asm: Vec<String>) -> Vec<String> {
     asm.push(format!("{}:", name));
-    asm.push("    push rbp".to_string());
-    asm.push("    mov rbp, rsp".to_string());
     return asm;
 }
 
