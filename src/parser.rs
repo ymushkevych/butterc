@@ -276,26 +276,54 @@ fn parse_bin_mult(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
     return stmt;
 }
 
-fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
+fn parse_print(prt_type: &String, expr: &[String], int_vars: &Vec<String>) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
     if prt_type == &"prf".to_string() {
         stmt.push("prf".to_string());
-        let conc = expr.concat();
-        let terms: Vec<&str> = conc.split("AMP").collect();
+        let mut terms: Vec<Vec<String>> = vec![];
+        let mut s_buf: Vec<String> = vec![];
+        for i in 0..expr.len() {
+            if expr[i] != "AMP" {
+                s_buf.push(expr[i].clone());
+            } else {
+                terms.push(s_buf.clone());
+                s_buf.clear();
+            }
+        }
+        if s_buf.len() > 0 {
+            terms.push(s_buf.clone());
+            s_buf.clear();
+        }
         let mut buf: Vec<char> = vec![];
         let mut _type = "var";
         for substring in terms {
-            if substring.chars().nth(0) == Some('"') || _type == "str" {
-                _type = "str";
-                //include quotation marks to avoid confusion with variable names. 
-                for ch in substring.chars() {
-                    if buf.len() == 0 {
-                        if ch != '"' {
-                            buf.push('"');
+            if is_bin_expr(&substring[0..]) {
+                stmt = parse_bin_expr(&substring[0..], int_vars, stmt);
+            } else if is_fnc_call(substring.clone()) {
+                stmt = parse_inline_fnc_call(&substring[0], &substring[2..3], stmt);
+            } else {
+                let substring = &substring[0];
+                if substring.chars().nth(0) == Some('"') || _type == "str" {
+                    _type = "str";
+                    //include quotation marks to avoid confusion with variable names. 
+                    for ch in substring.chars() {
+                        if buf.len() == 0 {
+                            if ch != '"' {
+                                buf.push('"');
+                            }
+                        }
+                        buf.push(ch);
+                        if buf.len() == 9 {
+                            if buf[buf.len()-1] != '"' {
+                                buf.push('"');
+                            } else {
+                                _type = "var";
+                            }
+                            stmt.push(buf.iter().collect());
+                            buf.clear();
                         }
                     }
-                    buf.push(ch);
-                    if buf.len() == 9 {
+                    if buf.len() > 0 {
                         if buf[buf.len()-1] != '"' {
                             buf.push('"');
                         } else {
@@ -304,18 +332,9 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
                         stmt.push(buf.iter().collect());
                         buf.clear();
                     }
+                } else {
+                    stmt.push(substring.to_string());
                 }
-                if buf.len() > 0 {
-                    if buf[buf.len()-1] != '"' {
-                        buf.push('"');
-                    } else {
-                        _type = "var";
-                    }
-                    stmt.push(buf.iter().collect());
-                    buf.clear();
-                }
-            } else {
-                stmt.push(substring.to_string());
             }
         }
     } else {
@@ -326,7 +345,6 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
         stmt.push("prt".to_string());
         stmt.push(format!("{}", &expr[0]))
     }
-
     return stmt;
 }
 
@@ -401,6 +419,16 @@ fn find_bin_operator(bin_expr: &[String]) -> usize {
     return 0;
 }
 
+
+fn is_fnc_call(expr:Vec<String>) -> bool {
+    if expr[1] != "PARO" {
+        eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `(` after function name in function call");
+    }
+    if expr[expr.len()-1] != "PARC" {
+        eprintln!("\x1b[1mSyntaxError\x1b[0m:V Expected `)` after list of function arguments");
+    }
+    return true;
+}
 
 fn is_bin_expr(expr: &[String]) -> bool {
     if expr.contains(&"PLUS".to_string()) 
@@ -566,8 +594,10 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool, mut funcs: Vec<String>) -
             funcs.push(expr[1].clone());
         } else if is_ret(expr.clone()) {
             stmts.push(parse_ret(expr.clone(), &int_vars));
-        } else {
+        } else if is_fnc_call(expr.clone()) {
             stmts.push(parse_fnc_call(&expr[0], &expr[2..expr.len()-1]));
+        } else {
+            exit(11);
         }
         expr.clear();
         i += (j-i)+1;  
