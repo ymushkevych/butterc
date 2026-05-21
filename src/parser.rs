@@ -29,14 +29,15 @@ fn parse_ret(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
     return stmt;
 }
 
-fn parse_inline_fnc_call(name: &String, args: &[String], mut asm: Vec<String>) -> Vec<String> {
+fn parse_inline_fnc_call(name: &String, args: &[String], mut stmt: Vec<String>) -> Vec<String> {
+    let mut func: Vec<String> = vec!["fcall".to_string(), name.to_string()];
     if args == ["PARC"] {
-        stmt.push(format!("fcall {} {:?}", name, "0".to_string()));
+        func.push("0".to_string());
     } else {
-        stmt.push(format!("fcall {} {:?}", name, args[0..].concat()));
+        func.push(args.join(","));
     }
-
-    return asm;
+    stmt.push(func.join(" "));
+    return stmt;
 }
 
 fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
@@ -44,14 +45,14 @@ fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
     if args == ["PARC"] {
         stmt.push("0".to_string());
     } else {
-        stmt.push(args[0..].concat());
+        stmt.push(args.join(","));
     }
 
     return stmt;
 }
 
 fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<String> {
-    let stmt: Vec<String> = vec!["fdec".to_string(), name.to_string()];
+    let mut stmt: Vec<String> = vec!["fdec".to_string(), name.to_string()];
     if funcs.contains(name) {
         eprintln!("\x1b[1mParserError\x1b[0m: cannot redeclare existing functions");
         exit(1);
@@ -59,7 +60,7 @@ fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<Str
     let binding = args.concat();
     let argv: Vec<&str> = binding.split("COMMA").collect();
     let mut args: Vec<String>  = vec![];
-    if argv.len() > 0 && argv[0] != ""{
+    if argv.len() > 0 && argv[0] != "" && argv[0] != "0" {
         if !is_int_lit(&argv[0].to_string()) {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: First item in a list of arguments must always be the count");
             exit(1);
@@ -69,7 +70,7 @@ fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<Str
             eprintln!("For a function with 0 arguments, an argument count is not needed");
             exit(1);
         }
-        for i in (1..argv.len()).step_by(2) {
+        for i in 1..argv.len() {
             let arg: Vec<&str> = argv[i].split("COL").collect();
             if arg.len() == 1 {
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: One of `type identifier` or `function argument` is missing");
@@ -80,16 +81,15 @@ fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<Str
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: function arguments must be preposed with a type identifier");
                 exit(1);
             } else {
-                args.push(arg[1].to_string());
+                args.push(argv[i].to_string());
             }
         }
         if (argv.len()-1) != argv[0].parse::<usize>().unwrap_or_default() {
             eprintln!("\x1b[1mParserError\x1b[0m: Amount of arguments specified does not equal the amount of arguments found");
             exit(1);
         }
-    } else {
-        args.push("NONE".to_string());
     }
+    stmt.push(args.clone().join(","));
     return stmt;
 }
 
@@ -430,11 +430,17 @@ fn find_bin_operator(bin_expr: &[String]) -> usize {
 
 
 fn is_fnc_call(expr:Vec<String>) -> bool {
+    if expr[0] == "fnc" {
+        return false;
+    }
     if expr[1] != "PARO" {
+        eprintln!("{expr:?}");
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `(` after function name in function call");
+        exit(1);
     }
     if expr[expr.len()-1] != "PARC" {
         eprintln!("\x1b[1mSyntaxError\x1b[0m:V Expected `)` after list of function arguments");
+        exit(1);
     }
     return true;
 }
@@ -446,7 +452,14 @@ fn is_bin_expr(expr: &[String]) -> bool {
     || expr.contains(&"DIV".to_string()) {
         return true;
     } else {
-        return false;
+        if expr.concat().contains(&"PLUS".to_string()) 
+        || expr.concat().contains(&"TIMES".to_string()) 
+        || expr.concat().contains(&"MIN".to_string())
+        || expr.concat().contains(&"DIV".to_string()) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }
 
@@ -492,10 +505,10 @@ fn is_print(expr: Vec<String>) -> bool {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Standard print statement must contain `\"` around the text");
             exit(1);
         }
-    }
-    if expr[1].len() == 2 {
+        if expr[1].len() == 2 {
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Print statement must have text to print");
         exit(1);
+    }
     }
     return true;
 }
@@ -593,7 +606,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool, mut funcs: Vec<String>) -
         else if is_var_assignment(expr.clone()) {
             stmts.push(parse_var_ass(&expr[0], &expr[2..], &consts, &int_vars))
         } else if is_print(expr.clone()) {
-            stmts.push(parse_print(&expr[0], &expr[1..]));
+            stmts.push(parse_print(&expr[0], &expr[1..], &int_vars));
         } else if is_fnc_dec(expr.clone()) {
             if expr.len() == 4 {
                 stmts.push(parse_fnc_dec(&expr[1], &[], &funcs));
@@ -605,8 +618,6 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool, mut funcs: Vec<String>) -
             stmts.push(parse_ret(expr.clone(), &int_vars));
         } else if is_fnc_call(expr.clone()) {
             stmts.push(parse_fnc_call(&expr[0], &expr[2..expr.len()-1]));
-        } else {
-            exit(11);
         }
         expr.clear();
         i += (j-i)+1;  
