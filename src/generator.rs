@@ -736,8 +736,8 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                     } else {
                         if has_bin_expr(&stmt[1..]) {
                                 funcs = gen_ret(&stmt[1..], &local_vars, funcs, offset);
-                            } else if stmt[1].contains("fcall") {
-                            funcs = gen_out(&stmt[1..], &local_vars, funcs, offset);
+                        } else if stmt[1].contains("fcall") {
+                            funcs = gen_ret(&stmt[1..], &local_vars, funcs, offset);
                         } else {
                             if let Some(v) = local_vars.get(&stmt[1]) {
                                 offset = *v;
@@ -746,7 +746,7 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                                 exit(1);
                             }
                             offset = (stack_height-offset-1)*8;
-                            funcs = gen_out(&stmt[1..], &local_vars, funcs, offset);
+                            funcs = gen_ret(&stmt[1..], &local_vars, funcs, offset);
                         }
                     }
                 }
