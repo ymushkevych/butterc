@@ -76,22 +76,57 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>, mut asm: Vec<String>
                 }
             }
         } else {
-            if !vars.contains_key(term) {
-                eprintln!("\x1b[1mParserError\x1b[0m: used undefined or inaccessible variable `{}`", term);
-                exit(1);
+            if is_bin_expr(term) {
+                asm = gen_bin_expr(&[term.to_owned()], vars, 8, asm);
+                asm.push("    pop rax".to_string());
+                asm.push(format!("    add rax, 48"));
+                asm.push(format!("    shl rax, {}", 8));
+                asm.push(format!("    mov rbx, ('' << {})", 0));
+                asm.push(format!("    or rax, rbx"));
+                asm.push("    push rax".to_string());
+                asm.push("    mov rax, 1".to_string());
+                asm.push("    mov rdi, 1".to_string());
+                asm.push("    mov rsi, rsp".to_string());
+                asm.push(format!("    mov rdx, {}", 2));
+                asm.push("    syscall".to_string());
+                asm.push("    add rsp, 16".to_string());
+            } else if is_fnc_call(term){
+                let term: Vec<&str> = term.split_ascii_whitespace().collect();
+                let term: Vec<String> = term.iter().map(|&a| a.to_string()).collect();
+                asm = gen_fnc_call(&term[1],&term[3..term.len()], asm);
+                asm.push(format!("    add rax, 48"));
+                asm.push(format!("    shl rax, {}", 8));
+                asm.push(format!("    mov rbx, ('' << {})", 0));
+                asm.push(format!("    or rax, rbx"));
+                asm.push("    push rax".to_string());
+                asm.push("    mov rax, 1".to_string());
+                asm.push("    mov rdi, 1".to_string());
+                asm.push("    mov rsi, rsp".to_string());
+                asm.push(format!("    mov rdx, {}", 2));
+                asm.push("    syscall".to_string());
+                asm.push("    add rsp, 16".to_string());
+            } else {
+                if let Some(v) = vars.get(term) {
+                    let mut offset = *v;
+                    offset = (get_stack_height(vars)-offset-1)*8;
+                    asm.push(format!("    mov rax, [rsp + {}]", offset+8));
+                    asm.push(format!("    add rax, 48"));
+                    asm.push(format!("    shl rax, {}", 8));
+                    asm.push(format!("    mov rbx, ('' << {})", 0));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 1".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                } else {
+                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", term);
+                    exit(1);
+                }
             }
-            asm.push(format!("    mov rax, [rsp + {}]", vars.get(term).unwrap()+8));
-            asm.push(format!("    add rax, 48"));
-            asm.push(format!("    shl rax, {}", 8));
-            asm.push(format!("    mov rbx, ('' << {})", 0));
-            asm.push(format!("    or rax, rbx"));
-            asm.push("    push rax".to_string());
-            asm.push("    mov rax, 1".to_string());
-            asm.push("    mov rdi, 1".to_string());
-            asm.push("    mov rsi, rsp".to_string());
-            asm.push(format!("    mov rdx, {}", 2));
-            asm.push("    syscall".to_string());
-            asm.push("    add rsp, 16".to_string());
+            
         }
     }
     asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
