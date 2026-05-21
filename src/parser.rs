@@ -30,13 +30,22 @@ fn parse_ret(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
 }
 
 fn parse_inline_fnc_call(name: &String, args: &[String], mut asm: Vec<String>) -> Vec<String> {
-    asm.push(format!("fcall {} {:?}", name, args[0..].concat()));
+    if args == ["PARC"] {
+        stmt.push(format!("fcall {} {:?}", name, "0".to_string()));
+    } else {
+        stmt.push(format!("fcall {} {:?}", name, args[0..].concat()));
+    }
 
     return asm;
 }
 
 fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
-    let stmt: Vec<String> = vec!["fcall".to_string(), name.to_string(), args[0..].concat()];
+    let mut stmt: Vec<String> = vec!["fcall".to_string(), name.to_string()];
+    if args == ["PARC"] {
+        stmt.push("0".to_string());
+    } else {
+        stmt.push(args[0..].concat());
+    }
 
     return stmt;
 }
