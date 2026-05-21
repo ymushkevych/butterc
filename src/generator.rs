@@ -39,7 +39,7 @@ fn has_bin_expr(exprs: &[String]) -> bool {
 }
 
 fn get_stack_height(vars: &HashMap<String, i32>) -> i32 {
-    let mut count: i32 = 0;
+    let mut count: i32 = -1;
     for offset in vars.values() {
         if offset > &count {
             count = *offset;
