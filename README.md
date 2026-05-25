@@ -2,7 +2,17 @@
 
 butterc (Butter Compiler) is a compiler for Butter, a hobby programming language I've been developing.
 
-It currently can do basic functions, variables, print statements, and basic math.
+# features
+
+- basic arithmetic
+- exiting with a custom code
+- calling and returning from functions
+- function arguments
+- integer variable assignment
+- constant vs. variable variables. 
+- standard printing
+- formatted printing (with variables)
+- error printing
 
 # dependencies
 
@@ -35,3 +45,7 @@ To use the compiler, run
 ```shell
 butterc <butter file>
 ```
+
+# license
+
+This project is relased under Apache 2.0
