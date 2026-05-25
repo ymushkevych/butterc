@@ -8,33 +8,30 @@ It currently can do basic functions, variables, print statements, and basic math
 
 An x86_64 Linux machine is needed to run the generated executable.
 
-nasm and ld are needed to run the compiler. ld should come pre-installed with all linux machines, but nasm can be installed with
+[nasm](https://www.nasm.us/), [ld](https://ftp.gnu.org/pub/old-gnu/Manuals/ld-2.9.1/html_node/ld_toc.html), and the [rust compiler](https://rust-lang.org/) are needed to build and use the executable.
 
-```bash
-sudo apt install nasm
+Sudo (administrator) permissions are also needed.
+
+The dependencies can be installed by navigating into the `build` directory and running
+
+```shell
+bash depend.sh
 ```
 
-or 
-
-```bash
-apt install nasm
-```
-To compile the compiler, the rust compiler (rustc) is needed. For information on how to install that, visit the [rust website](https://rust-lang.org/tools/install/)
+This will only download the dependencies that you are missing
 
 # building
 
-for those who either do not wish to install the rust compiler or would rather not build the compiler themselves, there is a pre-built executable in the build directory
+To build the compiler executable, navigate into the `build` directory and run
 
-Otherwise, run
-
-```bash
-cd ./build # move into the build directory
-bash ./buildsudo.sh # this will build the executable and move it into your binaries
+```shell
+bash build.sh
 ```
 
-If you do not have sudo (admin) permissions, run
+# running
 
-```bash
-cd ./build # move into the build directory
-bash ./build.sh
+To use the compiler, run
+
+```shell
+butterc <butter file>
 ```
