@@ -38,14 +38,18 @@ fn has_bin_expr(exprs: &[String]) -> bool {
     return true;
 }
 
-fn get_stack_height(vars: &HashMap<String, i32>) -> i32 {
+
+fn get_stack_height(stack: &HashMap<String, Vec<String>>) -> i32 {
     let mut count: i32 = -1;
-    for offset in vars.values() {
-        if offset > &count {
-            count = *offset;
+    for var in stack.keys() {
+        let off = stack.get(var).unwrap();
+        if off.len() == 0 {
+            continue;
+        } else if off[0].parse::<i32>().unwrap() > count { 
+            count = off[0].parse::<i32>().unwrap();
         }
-    }
-    return count+1;
+    }   
+    return count;
 }
 
 fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String>  {
@@ -56,7 +60,7 @@ fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String
 }
 
 
-fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
+fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     let mut stmt: Vec<String> = vec![];
     for term in prf {
         asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
@@ -77,11 +81,10 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<Str
             }
         } else {
             if is_bin_expr(term) {
-                asm = gen_bin_expr(&[term.to_owned()], vars, 8, funcs, asm);
+                asm = gen_bin_expr(&[term.to_owned()], vars, curr_func, true, asm);
                 asm.push("    pop rax".to_string());
                 asm.push(format!("    add rax, 48"));
-                asm.push(format!("    shl rax, {}", 8));
-                asm.push(format!("    mov rbx, ('' << {})", 0));
+                asm.push(format!("    mov rbx, ('' << {})", 8));
                 asm.push(format!("    or rax, rbx"));
                 asm.push("    push rax".to_string());
                 asm.push("    mov rax, 1".to_string());
@@ -93,10 +96,9 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<Str
             } else if is_fnc_call(term){
                 let term: Vec<&str> = term.split_ascii_whitespace().collect();
                 let term: Vec<String> = term.iter().map(|&a| a.to_string()).collect();
-                asm = gen_fnc_call(&term[1],&term[3..term.len()], vars, funcs, asm);
+                asm = gen_fnc_call(&term[1],&term[2..], vars, curr_func, true,asm);
                 asm.push(format!("    add rax, 48"));
-                asm.push(format!("    shl rax, {}", 8));
-                asm.push(format!("    mov rbx, ('' << {})", 0));
+                asm.push(format!("    mov rbx, ('' << {})", 8));
                 asm.push(format!("    or rax, rbx"));
                 asm.push("    push rax".to_string());
                 asm.push("    mov rax, 1".to_string());
@@ -106,13 +108,18 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<Str
                 asm.push("    syscall".to_string());
                 asm.push("    add rsp, 16".to_string());
             } else {
-                if let Some(v) = vars.get(term) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
+                if vars.get(curr_func).unwrap().get("stack").unwrap().contains_key(term)
+                {
+                    let mut offset = vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().get(term).unwrap()[0].parse::<i32>().unwrap();
+                    offset = (get_stack_height(vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap())-offset)*8;
+                    if curr_func != "" {
+                        if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(term) {
+                            offset += 8;
+                        }
+                    }
                     asm.push(format!("    mov rax, [rsp + {}]", offset+8));
                     asm.push(format!("    add rax, 48"));
-                    asm.push(format!("    shl rax, {}", 8));
-                    asm.push(format!("    mov rbx, ('' << {})", 0));
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
                     asm.push(format!("    or rax, rbx"));
                     asm.push("    push rax".to_string());
                     asm.push("    mov rax, 1".to_string());
@@ -140,61 +147,83 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<Str
     return asm;
 }
 
-fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, i32>, funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
-    if let Some(f) = funcs.get(name) {
-        asm.push(format!("    add rsp, {}", get_stack_height(vars)*8));
+fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
+    if vars.contains_key(name) {
+        let f = vars.get(name).unwrap();
         let args = args.concat();
         let args: Vec<&str> = args.split(',').collect();
         let args: Vec<String> = args.iter().map(|&s| s.to_string()).collect();
-        if args.len() == f.len() {
-            for i in 0..args.len() {
-                let arg = &args[i];
-                let _type = f[i].split("COL").collect::<Vec<&str>>()[0].to_string();
-                if _type == "int" {
-                    if is_int_lit(&arg) {
+        if args.len() == f.get(&"args".to_string()).unwrap().get("names").unwrap().len() {
+            if args.len() > 0 {
+                for i in 0..args.len() {
+                    let arg = &args[i];
+                    if is_int_lit(arg) {
                         asm = move_to_stack(&"rax".to_string(), arg, asm);
-                    
+                    } else if vars.get(curr_func).unwrap().get("stack").unwrap().contains_key(arg) {
+                        let mut offset = vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().get(arg).unwrap()[0].parse::<i32>().unwrap();
+                        offset = (get_stack_height(vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap())-offset)*8;
+                        if curr_func != "" {
+                            if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(arg) {
+                                offset += 8;
+                            }
+                        }
+                        if in_print {
+                            offset += 8;
+                        }
+                        offset += (i as i32)*8;
+                        asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {}]", offset), asm);
+                    } else if is_fnc_call(arg) {
+                        eprintln!("\x1b[1mSyntaxError\x1b[0m: Functions cannot act as arguments to other functions");
+                        eprintln!("Try using a variable with the same value instead");
+                        exit(1);
                     } else {
                         eprintln!("\x1b[1mParserError\x1b[0m: Type mismatch");
                         exit(1);
                     }
-                } else {
-                    exit(11);
                 }
             }
         } else {
-            eprintln!("\x1b[ParserError\x1b[0m: Expected {} arguments in function `{}`, but got {}", f.len(), name, args.len())
+            eprintln!("\x1b[1mParserError\x1b[0m: Expected {} arguments in function `{}`, but got {}", f.get(&"args".to_string()).unwrap().get("names").unwrap().len(), name, args.len());
+            exit(1);
         }
         asm.push(format!("    call {}", name));
         asm.push(format!("    add rsp, {}", args.len()*8));
     } else {
-        eprintln!("\x1bp[1mParserError\x1b[0m: Used undefined function `{}`", name);
+        eprintln!("\x1b[1mParserError\x1b[0m: Used undefined function `{}`", name);
     }
     return asm;
 }
 
-fn gen_ret(ret_val: &[String], vars: &HashMap<String, i32>, funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>, offset: i32) -> Vec<String> {
+fn gen_ret(ret_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     if ret_val.len() > 1 
-    || has_bin_expr(&ret_val) {
+    || has_bin_expr(&ret_val)
+    || is_fnc_call(&ret_val[0]) {
         if has_bin_expr(ret_val) {
-            asm = gen_bin_expr(ret_val, vars, 0, funcs, asm);
+            asm = gen_bin_expr(ret_val, vars, curr_func, false, asm);
             asm.push("    pop rax".to_string());
-        } else {
-            exit(11);
+        } else if is_fnc_call(&ret_val[0]) {
+            let ret_val: Vec<&str> = ret_val[0].split(' ').collect();
+            let args: Vec<String> = ret_val[2..].iter().map(|s| s.to_string()).collect();
+            asm = gen_fnc_call(&ret_val[1].to_string(), &args[0..], vars, curr_func, false, asm);
         }
     } else {
         if is_int_lit(&ret_val[0]) {
             asm.push(format!("    mov rax, {}", ret_val[0]));
-        } else {
-            if offset == 1 {
-                asm.push(format!("    mov rax, [{}]", ret_val[0]));
-            } else {
-                asm.push(format!("    mov rax, [rsp + {}]", offset));
+        } else if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&ret_val[0]) 
+        || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&ret_val[0]).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+                    offset += 8;
+                }
             }
+            asm.push(format!("    mov rax, [rsp + {:?}]", offset))
+        } else {
+            asm.push(format!("    mov rax, [{}]", ret_val[0]));
         }
     }
-    asm.push(format!("    add rsp, {}", (get_stack_height(vars))*8));
-    //asm.push("    pop rbp".to_string());
+    asm.push(format!("    add rsp, {}", 8*vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().len()));
     asm.push("    ret".to_string());
 
     return asm;
@@ -202,8 +231,6 @@ fn gen_ret(ret_val: &[String], vars: &HashMap<String, i32>, funcs: &HashMap<Stri
 
 fn gen_fnc_dec(name: &String, mut asm: Vec<String>) -> Vec<String> {
     asm.push(format!("{}:", name));
-    //asm.push("    push rbp".to_string());
-    //asm.push("    mov rbp, rsp".to_string());
     return asm;
 }
 
@@ -254,61 +281,58 @@ fn gen_print(prt: &String, mut asm: Vec<String>) -> Vec<String> {
     return asm;
 }
 
-fn gen_add(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
-    if rhs == "0" || !is_int_lit(rhs) {
-        if vars.contains_key(rhs) {
-            if !is_int_lit(rhs) {
-                if let Some(v) = vars.get(rhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", rhs);
-                    exit(1);
+fn gen_add(lhs: &String, rhs: &String, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
+    if !is_int_lit(rhs) {
+        if rhs == "STACK" {
+            asm.push("    pop rbx".to_string());
+        } else if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(rhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(rhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(rhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rbx".to_string());
         } else if rhs.contains("fcall") {
             let rhs: Vec<&str> = rhs.split("!").collect();  
             let args: Vec<String> = rhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
             asm.push("mov rbx, rax".to_string());
         } else {
-            if rhs == "0" {
-                asm.push("    pop rbx".to_string());
-            } else {
-                asm.push(format!("    mov rbx, [{}]", rhs));
-            }
+            asm.push(format!("    mov rbx, [{}]", rhs));
         }
-
     } else {
         asm.push(format!("    mov rbx, {}", rhs));
     }
-    if lhs == "0" || !is_int_lit(lhs) {
-        if vars.contains_key(lhs) {
-            if !is_int_lit(lhs) {
-                if let Some(v) = vars.get(lhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", lhs);
-                    exit(1);
+    if !is_int_lit(lhs) {
+        if lhs == "STACK" {
+            asm.push("    pop rax".to_string());
+        } 
+        else if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(lhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(lhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(lhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rax".to_string());
         } else if lhs.contains("fcall") {
             let lhs: Vec<&str> = lhs.split("!").collect();  
             let args: Vec<String> = lhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, curr_func, in_print,asm);
         } else {
-            if lhs == "0" {
-                asm.push("    pop rax".to_string());
-            } else {
-                asm.push(format!("    mov rax, [{}]", lhs));
-            }
+            asm.push(format!("    mov rax, [{}]", lhs));
         }
-
     } else {
         asm.push(format!("    mov rax, {}", lhs));
     }
@@ -318,61 +342,58 @@ fn gen_add(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  f
     return asm;
 }
 
-fn gen_sub(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,   funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
-    if rhs == "0" || !is_int_lit(rhs) {
-        if vars.contains_key(rhs) {
-            if !is_int_lit(rhs) {
-                if let Some(v) = vars.get(rhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", rhs);
-                    exit(1);
+fn gen_sub(lhs: &String, rhs: &String, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
+    if !is_int_lit(rhs) {
+        if rhs == "STACK" {
+            asm.push("    pop rbx".to_string());
+        } else if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(rhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(rhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(rhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rbx".to_string());
         } else if rhs.contains("fcall") {
             let rhs: Vec<&str> = rhs.split("!").collect();  
             let args: Vec<String> = rhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
             asm.push("mov rbx, rax".to_string());
         } else {
-            if rhs == "0" {
-                asm.push("    pop rbx".to_string());
-            } else {
-                asm.push(format!("    mov rbx, [{}]", rhs));
-            }
+            asm.push(format!("    mov rbx, [{}]", rhs));
         }
-
     } else {
         asm.push(format!("    mov rbx, {}", rhs));
     }
-    if lhs == "0" || !is_int_lit(lhs) {
-        if vars.contains_key(lhs) {
-            if !is_int_lit(lhs) {
-                if let Some(v) = vars.get(lhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", lhs);
-                    exit(1);
+    if !is_int_lit(lhs) {
+        if lhs == "STACK" {
+            asm.push("    pop rax".to_string());
+        }
+        else if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(lhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(lhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(lhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rax".to_string());
         }  else if lhs.contains("fcall") {
             let lhs: Vec<&str> = lhs.split("!").collect();  
             let args: Vec<String> = lhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
         } else {
-            if lhs == "0" {
-                asm.push("    pop rax".to_string());
-            } else {
-                asm.push(format!("    mov rax, [{}]", lhs));
-            }
+            asm.push(format!("    mov rax, [{}]", lhs));
         }
-
     } else {
         asm.push(format!("    mov rax, {}", lhs));
     }
@@ -382,24 +403,25 @@ fn gen_sub(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,   
     return asm;
 }
 
-fn gen_mul(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  funcs: &HashMap<String, Vec<String>>,mut asm: Vec<String>) -> Vec<String> {
+fn gen_mul(lhs: &String, rhs: &String, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
     if rhs == "0" || !is_int_lit(rhs) {
-        if vars.contains_key(rhs) {
-            if !is_int_lit(rhs) {
-                if let Some(v) = vars.get(rhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mCompilationError\x1b[0m: Used undefined or inaccessible variable, `{}`", rhs);
-                    exit(1);
+        if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(rhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(rhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(rhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rbx".to_string());
         }  else if rhs.contains("fcall") {
             let rhs: Vec<&str> = rhs.split("!").collect();  
             let args: Vec<String> = rhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
             asm.push("mov rbx, rax".to_string());
         } else {
             if rhs == "0" {
@@ -413,22 +435,23 @@ fn gen_mul(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  f
         asm.push(format!("    mov rbx, {}", rhs));
     }
     if lhs == "0" || !is_int_lit(lhs) {
-        if vars.contains_key(lhs) {
-            if !is_int_lit(lhs) {
-                if let Some(v) = vars.get(lhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", lhs);
-                    exit(1);
+        if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(lhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(lhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(lhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rax".to_string());
         }  else if lhs.contains("fcall") {
             let lhs: Vec<&str> = lhs.split("!").collect();  
             let args: Vec<String> = lhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
         } else {
             if lhs == "0" {
                 asm.push("    pop rax".to_string());
@@ -446,24 +469,25 @@ fn gen_mul(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  f
     return asm;
 }
 
-fn gen_div(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
+fn gen_div(lhs: &String, rhs: &String, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
     if rhs == "0" || !is_int_lit(rhs) {
-        if vars.contains_key(rhs) {
-            if !is_int_lit(rhs) {
-                if let Some(v) = vars.get(rhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mCompilationError\x1b[0m: Used undefined or inaccessible variable, `{}`", rhs);
-                    exit(1);
+        if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(rhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(rhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(rhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rbx".to_string());
         }  else if rhs.contains("fcall") {
             let rhs: Vec<&str> = rhs.split("!").collect();  
             let args: Vec<String> = rhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&rhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
             asm.push("mov rbx, rax".to_string());
         } else {
             if rhs == "0" {
@@ -477,23 +501,23 @@ fn gen_div(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  f
         asm.push(format!("    mov rbx, {}", rhs));
     }
     if lhs == "0" || !is_int_lit(lhs) {
-        if vars.contains_key(lhs) {
-            if !is_int_lit(lhs) {
-                if let Some(v) = vars.get(lhs) {
-                    let mut offset = *v;
-                    offset = (get_stack_height(vars)-offset-1)*8;
-                    asm = move_to_stack(&"rbx".to_string(), &format!("[rsp + {:?}]", offset+adj), asm);
-                } else {
-                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", lhs);
-                    exit(1);
+        if vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().contains_key(lhs) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(lhs).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(lhs) {
+                    offset += 8;
                 }
-            } 
+            }
+            if in_print {
+                offset += 8;
+            }
+            asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
             asm.push("    pop rax".to_string());
         }  else if lhs.contains("fcall") {
             let lhs: Vec<&str> = lhs.split("!").collect();  
             let args: Vec<String> = lhs[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, funcs, asm);
-            asm.push("mov rbx, rax".to_string());
+            asm = gen_fnc_call(&lhs[1].to_string(), &args[0..], vars, curr_func, in_print, asm);
         } else {
             if lhs == "0" {
                 asm.push("    pop rax".to_string());
@@ -511,20 +535,20 @@ fn gen_div(lhs: &String, rhs: &String, vars: &HashMap<String, i32>, adj: i32,  f
     return asm;
 }
 
-fn gen_bin_expr(expr: &[String], vars: &HashMap<String, i32>, adj: i32,  funcs: &HashMap<String, Vec<String>> ,mut asm: Vec<String>) -> Vec<String> {
+fn gen_bin_expr(expr: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
     for bin_expr in expr.iter() {
         if bin_expr.contains("PLUS") {
             let bin_expr: Vec<&str> = bin_expr.split(' ').collect();
-            asm = gen_add(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, adj, funcs, asm);
+            asm = gen_add(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, curr_func, in_print, asm);
         } else if bin_expr.contains("TIMES") {
             let bin_expr: Vec<&str> = bin_expr.split(' ').collect();
-            asm = gen_mul(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, adj, funcs, asm);
+            asm = gen_mul(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, curr_func, in_print, asm);
         } else if bin_expr.contains("MIN") {
             let bin_expr: Vec<&str> = bin_expr.split(' ').collect();
-            asm = gen_sub(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, adj, funcs, asm); 
+            asm = gen_sub(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, curr_func, in_print, asm); 
         } else if bin_expr.contains("DIV") {
             let bin_expr: Vec<&str> = bin_expr.split(' ').collect();
-            asm = gen_div(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, adj, funcs, asm); 
+            asm = gen_div(&bin_expr[0].to_string(), &bin_expr[2].to_string(), vars, curr_func, in_print, asm); 
         }
     }
 
@@ -591,28 +615,38 @@ fn gen_const_bin_expr(expr: &[String], mut asm: Vec<String>) -> Vec<String> {
     return asm;
 }
 
-fn gen_out(out_val: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>, offset: i32) -> Vec<String> {
+fn gen_out(out_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     if out_val.len() > 1 {
         if has_bin_expr(out_val) {
-            asm = gen_bin_expr(out_val, vars, 0, funcs, asm);
+            asm = gen_bin_expr(out_val, vars, curr_func, false, asm);
         } else {
             exit(1);
         }
     } else {
         if is_bin_expr(&out_val[0]) {
-            asm = gen_bin_expr(out_val, vars, 0, funcs, asm);
+            asm = gen_bin_expr(out_val, vars, curr_func, false, asm);
         } else if is_fnc_call(&out_val[0]) {
             let out_val: Vec<&str> = out_val[0].split(' ').collect();
             let args: Vec<String> = out_val[1..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&out_val[1].to_string(), &args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&out_val[1].to_string(), &args[0..], vars, curr_func, false, asm);
             asm.push("    push rax".to_string());
         } else if is_int_lit(&out_val[0]) {
             asm = move_to_stack(&"rax".to_string(), &out_val[0], asm);
         } else {
-            if offset == 1 {
-                asm = move_to_stack(&"rax".to_string(), &format!("[{}]", out_val[0]), asm);
+            if is_int_lit(&out_val[0]) {
+                asm.push(format!("    mov rax, {}", out_val[0]));
+            } else if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&out_val[0]) 
+            || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&out_val[0]){
+                let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&out_val[0]).unwrap()[0].parse::<i32>().unwrap();
+                offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+                if curr_func != "" {
+                    if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&out_val[0]) {
+                        offset += 8;
+                    }
+                }
+                asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
             } else {
-                asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {}]", offset), asm);
+                asm.push(format!("    mov rax, [{}]", out_val[0]));
             }
         }
     }
@@ -639,35 +673,44 @@ fn gen_const_var(const_name: &String, const_val: &[String], mut asm: Vec<String>
     return asm;
 }
 
-fn gen_var_var(var_val: &[String], vars: &HashMap<String, i32>,  funcs: &HashMap<String, Vec<String>>, mut asm: Vec<String>) -> Vec<String> {
+fn gen_var_var(var_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
     if var_val.len() > 1 
     || var_val[0].to_string().contains(&"PLUS".to_string()) 
     || var_val[0].to_string().contains(&"TIMES".to_string()) 
     || var_val[0].to_string().contains(&"MIN".to_string())
     || var_val[0].to_string().contains(&"DIV".to_string()) { 
-        asm = gen_bin_expr(var_val, vars, 0, funcs, asm);
+        asm = gen_bin_expr(var_val, vars, curr_func, in_print, asm);
     } else {
         if is_fnc_call(&var_val[0]) {
             let var_val: Vec<&str> = var_val[0].split(' ').collect();
             let args: Vec<String> = var_val[2..].iter().map(|s| s.to_string()).collect();
-            asm = gen_fnc_call(&var_val[1].to_string(),&args[0..], vars, funcs, asm);
+            asm = gen_fnc_call(&var_val[1].to_string(),&args[0..], vars, curr_func, false, asm);
+            asm.push("    push rax".to_string());
+        } else if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&var_val[0]) 
+        || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&var_val[0]){
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&var_val[0]).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&var_val[0]) {
+                    offset += 8;
+                }
+            }
+            asm = move_to_stack(&"rax".to_string(), &format!("[rsp + {:?}]", offset), asm);
         } else {
             asm.push("    mov rax, ".to_string() + &var_val[0]);
+            asm.push("    push rax".to_string());
         }
-        asm.push("    push rax".to_string());
     }
-
     return asm;
 }
 
 pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_main: bool) {
-    let mut global_vars: HashMap<String, i32> = HashMap::new();
-    let mut local_vars: HashMap<String, i32> = HashMap::new();
+    let mut vars: HashMap<String, HashMap<String, HashMap<String, Vec<String>>>> = HashMap::new();
+    let mut curr_func: String = String::from("");
     let mut consts: Vec<String> = vec![];
     let mut stack_height: i32 = 0;
     let asm_name = name.to_owned() + ".asm";
     let mut funcs: Vec<String> = vec![];
-    let mut func_args: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_func: bool = false;
     let mut data: Vec<String> = vec![];
     let mut start: Vec<String> = vec![];
@@ -681,76 +724,36 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
         }
     };
     let mut writer: BufWriter<File> = BufWriter::new(assembly);
-    let mut indent: i32 = 0;
 
     for stmt in stmts {
         if &stmt[0] == &"out".to_string() {
-            let mut offset: i32 = 0;
-            if consts.contains(&stmt[1]) {
-                if in_func {
-                    funcs = gen_out(&stmt[1..], &local_vars, &func_args, funcs, 1);
-                } else {
-                    start = gen_out(&stmt[1..], &global_vars, &func_args, start, 1);
-                }
+            if in_func {
+                funcs = gen_out(&stmt[1..],&vars, &curr_func, funcs);
             } else {
-                if is_int_lit(&stmt[1]) {
-                    if in_func {
-                        funcs = gen_out(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                    } else {
-                        start = gen_out(&stmt[1..], &global_vars, &func_args, start, offset);
-                    }
-                } else {
-                    if has_bin_expr(&stmt[1..]) {
-                        if in_func {
-                            funcs = gen_out(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                        } else {
-                            start = gen_out(&stmt[1..], &global_vars, &func_args, start, offset);
-                        }
-                    } else if stmt[1].contains("fcall") {
-                        if in_func {
-                            funcs = gen_out(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                        } else {
-                            start = gen_out(&stmt[1..], &global_vars, &func_args, start, offset);
-                        }
-                    } else {
-                        if in_func {
-                            if let Some(v) = local_vars.get(&stmt[1]) {
-                                offset = *v;
-                            } else {
-                                eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable");
-                                exit(1);
-                            }
-                            offset = (stack_height-offset-1)*8;
-                            offset = (stack_height-offset-1)*8;
-                            funcs = gen_out(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                        } else {
-                            if let Some(v) = global_vars.get(&stmt[1]) {
-                                offset = *v;
-                            } else {
-                                eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable");
-                                exit(1);
-                            }
-                            offset = (stack_height-offset-1)*8;
-                            start = gen_out(&stmt[1..], &global_vars, &func_args, start, offset);
-                        }
-                    }
-                }
+                start = gen_out(&stmt[1..], &vars, &curr_func, start);
             }
-        }
-        else if &stmt[0] == &"vdec".to_string() {
+        } else if &stmt[0] == &"vdec".to_string() {
             if &stmt[1] == &"const".to_string() {
                 data = gen_const_var(&stmt[2], &stmt[3..], data);
                 consts.push(stmt[2].clone());
             } else {
                 if in_func {
-                    funcs = gen_var_var(&stmt[3..], &local_vars,&func_args, funcs);
-                    local_vars.insert(stmt[2].clone(), stack_height);
-                    stack_height += 1;
+                    funcs = gen_var_var(&stmt[3..], &vars, &curr_func, false, funcs);
                 } else {
-                    start = gen_var_var(&stmt[3..], &global_vars,&func_args, start);
-                    global_vars.insert(stmt[2].clone(), stack_height);
-                    stack_height += 1;
+                    start = gen_var_var(&stmt[3..], &vars, &curr_func, false, start);
                 }
+                let name = stmt[2].clone();
+                vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap().insert(
+                    name.clone(), 
+                    vec![stack_height.to_string()]
+                );
+                vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut("int").unwrap().push(
+                    name.clone()
+                );
+                vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(
+                    name.clone()
+                );
+                stack_height += 1;
             }
         } else if &stmt[0] == &"prt".to_string() {
             if in_func {
@@ -760,65 +763,88 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
             }
         } else if &stmt[0] == &"prf".to_string() {
             if in_func {
-                funcs = gen_print_f(&stmt[1..], &local_vars, &func_args,funcs);
+                funcs = gen_print_f(&stmt[1..], &vars, &curr_func,funcs);
             } else {
-                start = gen_print_f(&stmt[1..], &global_vars, &func_args,start);
+                start = gen_print_f(&stmt[1..], &vars, &curr_func,start);
             }
         }else if &stmt[0] == &"vass".to_string() {
             if in_func {
-                funcs = gen_var_var(&stmt[2..], &local_vars, &func_args,funcs);
-                *local_vars.get_mut(&stmt[1]).unwrap() = stack_height;
+                funcs = gen_var_var(&stmt[2..], &vars, &curr_func,false, funcs);
             } else {
-                start = gen_var_var(&stmt[2..], &global_vars, &func_args,start);
-                *global_vars.get_mut(&stmt[1]).unwrap() = stack_height;
+                start = gen_var_var(&stmt[2..], &vars, &curr_func,false, start);
             }
+            vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap().insert(
+                stmt[2].clone(), 
+                vec![stack_height.to_string()]
+            );
             stack_height += 1;
         } else if &stmt[0] == "fdec"{
             if !in_func {
                 in_func = true;
+            }  else {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot nest functions");
+                exit(1);
             }
             funcs = gen_fnc_dec(&stmt[1], funcs);
             let args = &stmt.clone()[2..stmt.clone().len()].concat();
             let args = args.split(',').collect::<Vec<&str>>();
             let args = args[0..].iter().map(|&s| s.to_string()).collect::<Vec<String>>();
-            func_args.insert(stmt[1].clone(), args);
-            indent += 1;
-        } else if &stmt[0] == "endfunc" {
-            indent -= 1;
-            if indent == 0 {
-                in_func = false;
+            vars.insert(stmt[1].clone(), HashMap::from([
+                ("args".to_string(), HashMap::from([
+                    ("int".to_string(), vec![]),
+                    ("names".to_string(), vec![]),
+                ])),
+                ("vars".to_string(), HashMap::from([
+                    ("int".to_string(), vec![]),
+                    ("names".to_string(), vec![]),
+                ])),
+                ("stack".to_string(), HashMap::from([
+                    ("".to_string(), vec![String::from("-1")]),
+                ])),
+            ]));
+            curr_func = stmt[1].clone();
+
+            for arg in args {
+                if arg != "" {
+                    let arg = arg.split("COL").collect::<Vec<&str>>();
+                    let _type = arg[0];
+                    let value = arg[1];
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&_type.to_string()).unwrap().push(value.to_string());
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&"names".to_string()).unwrap().push(value.to_string());
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"stack".to_string()).unwrap().insert(
+                        value.to_string(), 
+                        vec![stack_height.to_string()]
+                    );
+                    stack_height += 1;
+                }
             }
+        } else if &stmt[0] == "endfunc" {
+            in_func = false;
+            curr_func = "".to_string();
         } else if &stmt[0] == "fcall"{
             if in_func {
-                funcs.push(format!("    call {}", &stmt[1]));
+                funcs = gen_fnc_call(&stmt[1], &stmt[2..], &vars, &curr_func, false, funcs);
             } else {
-                start.push(format!("    call {}", &stmt[1]));
+                start = gen_fnc_call(&stmt[1], &stmt[2..], &vars, &curr_func, false, start);
+            }
+            let arg_names = vars.get(&stmt[1]).unwrap().get("args").unwrap().get("names").unwrap().clone();
+
+            for a_name in arg_names{
+                if vars.get(&stmt[1]).unwrap().get(&"stack".to_string()).unwrap().contains_key(&a_name) {
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"stack".to_string()).unwrap().get_mut(&a_name).unwrap().remove(0);
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"stack".to_string()).unwrap().get_mut(&a_name).unwrap().push(stack_height.to_string());
+                    stack_height += 1; 
+                } else {
+                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"stack".to_string()).unwrap().insert(
+                        a_name.to_string(),
+                        vec![stack_height.to_string()]
+                    );
+                    stack_height += 1;
+                }
             }
         } else if &stmt[0] == "ret" {
             if in_func {
-                let mut offset = 0;
-                if consts.contains(&stmt[1]) {
-                    funcs = gen_ret(&stmt[1..], &local_vars, &func_args, funcs, 1);
-                } else {
-                    if is_int_lit(&stmt[1]) {
-                        funcs = gen_ret(&stmt[1..], &local_vars, &func_args,funcs, offset);
-                    } else {
-                        if has_bin_expr(&stmt[1..]) {
-                                funcs = gen_ret(&stmt[1..], &local_vars, &func_args,funcs, offset);
-                        } else if stmt[1].contains("fcall") {
-                            funcs = gen_ret(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                        } else {
-                            if let Some(v) = local_vars.get(&stmt[1]) {
-                                offset = *v;
-                            }  else {
-                                eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable");
-                                exit(1);
-                            }
-                            offset = (stack_height-offset-1)*8;
-                            funcs = gen_ret(&stmt[1..], &local_vars, &func_args, funcs, offset);
-                        }
-                    }
-                }
+                funcs = gen_ret(&stmt[1..], &vars, &curr_func,funcs);
             } else {
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: `ret` can only be used within a function.\nTo exit the program, use `out`");
                 exit(1);
