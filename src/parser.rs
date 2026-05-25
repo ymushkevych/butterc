@@ -1,13 +1,13 @@
-use std::{process::exit};
+use std::{process::exit, collections::HashMap};
 
 const TYPES: [&str; 4] = ["int", "vec", "str", "bool"];
 const ATTRIBUTES: [&str; 2] = ["var", "const"];
 
-fn parse_ret(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
+fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
     if expr.len() > 2 {
         if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..], int_vars, stmt);
+            stmt = parse_bin_expr(&expr[1..], stmt);
         } else {
             if expr[2] == "PARO" {
                 stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1],stmt);
@@ -19,7 +19,8 @@ fn parse_ret(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
     } else {
         if is_int_lit(&expr[1]) {
             stmt.push(expr[1].clone());
-        } else if int_vars.contains(&expr[1]) {
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&expr[1]) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]) {
             stmt.push(format!("{}", expr[1].clone()));
         } else {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Only integer literals or variables evaluating to integer literals can be returned");
@@ -34,7 +35,7 @@ fn parse_inline_fnc_call(name: &String, args: &[String], mut stmt: Vec<String>) 
     if args == ["PARC"] {
         func.push("0".to_string());
     } else {
-        func.push(args.join(","));
+        func.push(args.concat().split("COMMA").collect::<Vec<&str>>().join(","));
     }
     stmt.push(func.join(" "));
     return stmt;
@@ -45,22 +46,25 @@ fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
     if args == ["PARC"] {
         stmt.push("0".to_string());
     } else {
-        stmt.push(args.join(","));
+        stmt.push(args.concat().split("COMMA").collect::<Vec<&str>>().join(","));
     }
 
     return stmt;
 }
 
-fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<String> {
+fn parse_fnc_dec(name: &String, args: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["fdec".to_string(), name.to_string()];
-    if funcs.contains(name) {
+    if vars.contains_key(name) {
         eprintln!("\x1b[1mParserError\x1b[0m: cannot redeclare existing functions");
         exit(1);
     }
-    let binding = args.concat();
-    let argv: Vec<&str> = binding.split("COMMA").collect();
+    let binding = args.join("");
+    let mut argv = binding.split("COMMA").collect::<Vec<&str>>();
+    if argv[0] == "" {
+        argv.remove(0);
+    }
     let mut args: Vec<String>  = vec![];
-    if argv.len() > 0 && argv[0] != "" && argv[0] != "0" {
+    if argv.len() > 0 && argv[0] != "0" {
         if !is_int_lit(&argv[0].to_string()) {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: First item in a list of arguments must always be the count");
             exit(1);
@@ -93,14 +97,14 @@ fn parse_fnc_dec(name: &String, args: &[String], funcs: &Vec<String>) -> Vec<Str
     return stmt;
 }
 
-fn parse_var_ass(name: &String, value: &[String], consts: &Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
+fn parse_var_ass(name: &String, value: &[String], consts: &Vec<String>) -> Vec<String> {
     if is_const_var(name, consts) {
         eprintln!("\x1b[1mParserError\x1b[0m: Cannot reassign value to constant variable");
         exit(1);
     }
     let mut stmt: Vec<String> = vec!["vass".to_string(), name.to_string()];
     if value.len() > 1 {
-        stmt = parse_bin_expr(value, int_vars, stmt);
+        stmt = parse_bin_expr(value, stmt);
     } else {
         if !is_int_lit(&value[0]) {
             exit(11);
@@ -110,7 +114,7 @@ fn parse_var_ass(name: &String, value: &[String], consts: &Vec<String>, int_vars
     return stmt;
 }
 
-fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &String, consts: &Vec<String>, int_vars: &Vec<String> ) -> Vec<String> {
+fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &String, consts: &Vec<String>) -> Vec<String> {
     if is_const_var(name, consts) {
         eprintln!("\x1b[1mParserError\x1b[0m: Cannot redeclare constant variable");
         exit(1);
@@ -127,7 +131,7 @@ fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &S
     let mut stmt: Vec<String> = vec!["vdec".to_string(), attribute.to_string(), name.to_string()];
 
     if var_type == "int" {
-        stmt = parse_int(var, int_vars, stmt);
+        stmt = parse_int(var, stmt);
     } else if var_type == "vec" {
         exit(11);
     } else if var_type == "str" {
@@ -139,83 +143,71 @@ fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &S
     return stmt;
 }
 
-fn parse_bin_expr(expr: &[String], _int_vars: &Vec<String>, mut stmt: Vec<String>) -> Vec<String> {
+fn parse_bin_expr(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
     let mut expr = expr.to_vec();
     while expr.len() > 2 {
-        /*if (!int_vars.contains(&expr[0]) && !is_int_lit(&expr[0]))
-            || (!int_vars.contains(&expr[2]) && !is_int_lit(&expr[2])) {
-            eprintln!("only integer literals, integer variables, and function are supported in binary expressions");
-            exit(1);
-        } */
-        let i = find_bin_operator(&expr[0..]);
-        if i == 0  {
-            eprintln!("\x1b[1mSyntaxError\x1b[0m: Binary Expression cannot begin with a binary operator");
+        let bin_op_loc = find_bin_operator(&expr[0..]);
+        if bin_op_loc == 0 {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Binary expressions cannot begin with a binary operator");
             exit(1);
         }
-        let bin_expr_1_len =get_bin_expr_len(&expr, i, 0);
+        let expr_len = get_bin_expr_len(&expr);
 
-        if &expr[i] == &"PLUS".to_string() || &expr[i] == &"MIN".to_string() {
-            if expr.len() == bin_expr_1_len {
-                if &expr[i] == &"PLUS".to_string() {
-                        stmt = parse_bin_add(&expr[0..bin_expr_1_len], stmt);
-                        expr.drain(0..bin_expr_1_len);
-                        expr.insert(0, "0".to_string());
-                    } else {
-                        stmt = parse_bin_sub(&expr[0..bin_expr_1_len], stmt);
-                        expr.drain(0..bin_expr_1_len);
-                        expr.insert(0, "0".to_string());
-                    }
+        if expr[bin_op_loc] == "PLUS" || expr[bin_op_loc] == "MIN" {
+            if expr.len() == expr_len {
+                if expr[bin_op_loc] == "PLUS" {
+                    stmt = parse_bin_add(&expr[0..expr_len], stmt);
+                    expr.drain(0..expr_len);
+                    expr.insert(0, "STACK".to_string())
+                } else {
+                    stmt = parse_bin_sub(&expr[0..expr_len], stmt);
+                    expr.drain(0..expr_len);
+                    expr.insert(0, "STACK".to_string())
+                }
             } else {
-
-                let j = bin_expr_1_len + 1;
-                
-                let bin_expr_2_len = get_bin_expr_len(&expr, j, i);
-                /*if (!int_vars.contains(&expr[2]) && !is_int_lit(&expr[2]))
-                    || (!int_vars.contains(&expr[4]) && !is_int_lit(&expr[4])) {
-                    eprintln!("only integer literals and integer variables supported in binary expressions");
+                let bin_op_2_loc = find_bin_operator(&expr[bin_op_loc+1..]);
+                if bin_op_2_loc == 0 {
+                    eprintln!("\x1b[1mSyntaxError\x1b[0m: Missing operand. Binary operators must be separated by an operand");
                     exit(1);
-                } */
-                if &expr[j] == &"PLUS".to_string() || &expr[j] == &"MIN".to_string() {
-                    if &expr[i] == &"PLUS".to_string() {
-                        stmt = parse_bin_add(&expr[0..bin_expr_1_len], stmt);
-                        expr.drain(0..bin_expr_1_len);
-                        expr.insert(0, "0".to_string());
+                }
+                let expr_2_len = get_bin_expr_len(&expr[bin_op_2_loc+1..]);
+                if expr[bin_op_2_loc] == "TIMES" || expr[bin_op_2_loc] == "DIV" {
+                    if expr[bin_op_2_loc] == "TIMES" {
+                        stmt = parse_bin_mult(&expr[expr_len..expr_2_len+1], stmt);
+                        expr.drain(expr_len..expr_2_len+1);
+                        expr.insert(expr_len, "STACK".to_string())
                     } else {
-                        stmt = parse_bin_sub(&expr[0..bin_expr_1_len], stmt);
-                        expr.drain(0..bin_expr_1_len);
-                        expr.insert(0, "0".to_string());
+                        stmt = parse_bin_div(&expr[expr_len..expr_2_len+1], stmt);
+                        expr.drain(expr_len..expr_2_len+1);
+                        expr.insert(expr_len, "STACK".to_string())
                     }
-                } else if &expr[j] == &"TIMES".to_string() || &expr[j] == &"DIV".to_string() {
-                    if &expr[j] == &"TIMES".to_string() {
-                        //1 + 2 * 2
-                        stmt = parse_bin_mult(&expr[i+1..bin_expr_2_len], stmt);
-                        expr.drain(i+1..bin_expr_2_len);
-                        expr.insert(i+1, "0".to_string());
+                } else if expr[bin_op_2_loc] == "PLUS" || expr[bin_op_2_loc] == "MIN"{
+                    if expr[bin_op_loc] == "TIMES" {
+                        stmt = parse_bin_mult(&expr[0..expr_len+1], stmt);
+                        expr.drain(0..expr_len);
+                        expr.insert(0, "STACK".to_string())
                     } else {
-                        stmt = parse_bin_div(&expr[i+1..bin_expr_2_len], stmt);
-                        expr.drain(i+1..bin_expr_2_len);
-                        expr.insert(i+1, "0".to_string());
+                        stmt = parse_bin_div(&expr[0..expr_len+1], stmt);
+                        expr.drain(0..expr_len);
+                        expr.insert(0, "STACK".to_string())
                     }
                 } else {
-                    eprintln!("\x1b[1mSyntaxError\x1b[0m: Only `+`, `-`, `*`, `/` allowed in binary expressions");
+                    println!("\x1b[1mSyntaxError\x1b[0m: Used undefined or illegal binary operator");
                     exit(1);
-                }  
+                }
             }
-        } else if &expr[i] == &"TIMES".to_string() || &expr[i] == &"DIV".to_string() {
-            if &expr[i] == &"TIMES".to_string() {
-                stmt = parse_bin_mult(&expr[0..bin_expr_1_len], stmt);
-                expr.drain(0..bin_expr_1_len);
-                expr.insert(0, "0".to_string());
-            } else if &expr[i] == &"DIV".to_string() {
-                stmt = parse_bin_div(&expr[0..bin_expr_1_len], stmt);
-                expr.drain(0..bin_expr_1_len);
-                expr.insert(0, "0".to_string());
+        } else if expr[bin_op_loc] == "TIMES" || expr[bin_op_loc] == "DIV" {
+            if expr[bin_op_loc] == "TIMES" {
+                stmt = parse_bin_mult(&expr[0..expr_len], stmt);
+                expr.drain(0..expr_len);
+                expr.insert(0, "STACK".to_string())
             } else {
-                eprintln!("\x1b[1mSyntaxError\x1b[0m: Only `+`, `-`, `*`, `/` allowed in binary expressions");
-                exit(1);
-            } 
+                stmt = parse_bin_div(&expr[0..expr_len], stmt);
+                expr.drain(0..expr_len);
+                expr.insert(0, "STACK".to_string())
+            }
         } else {
-            eprintln!("\x1b[1mSyntaxError\x1b[0m: Only `+`, `-`, `*`, `/` allowed in binary expressions");
+            println!("\x1b[1mSyntaxError\x1b[0m: Used undefined or illegal binary operator");
             exit(1);
         }
     }
@@ -248,7 +240,6 @@ fn parse_bin_sub(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
     if rhs.contains("PARO") {
         rhs = format!("fcall!{}", expr[find_bin_operator(expr)+1]);
     }
-
     stmt.push(format!("{} MIN {}", lhs, rhs));
     return stmt;
 }
@@ -285,7 +276,7 @@ fn parse_bin_mult(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
     return stmt;
 }
 
-fn parse_print(prt_type: &String, expr: &[String], int_vars: &Vec<String>) -> Vec<String> {
+fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
     if prt_type == &"prf".to_string() {
         stmt.push("prf".to_string());
@@ -307,9 +298,9 @@ fn parse_print(prt_type: &String, expr: &[String], int_vars: &Vec<String>) -> Ve
         let mut _type = "var";
         for substring in terms {
             if is_bin_expr(&substring[0..]) {
-                stmt = parse_bin_expr(&substring[0..], int_vars, stmt);
+                stmt = parse_bin_expr(&substring[0..],  stmt);
             } else if is_fnc_call(substring.clone()) {
-                stmt = parse_inline_fnc_call(&substring[0], &substring[2..3], stmt);
+                stmt = parse_inline_fnc_call(&substring[0], &substring[2..substring.len()-1], stmt);
             } else {
                 let substring = &substring[0];
                 if substring.chars().nth(0) == Some('"') || _type == "str" {
@@ -357,10 +348,10 @@ fn parse_print(prt_type: &String, expr: &[String], int_vars: &Vec<String>) -> Ve
     return stmt;
 }
 
-fn parse_int(var: &[String], int_vars: &Vec<String>, mut stmt:Vec<String>) -> Vec<String> {
+fn parse_int(var: &[String], mut stmt:Vec<String>) -> Vec<String> {
     if var.len() > 1 {
         if is_bin_expr(var){
-            stmt = parse_bin_expr(var, int_vars, stmt);
+            stmt = parse_bin_expr(var, stmt);
         } else if var[1] == "PARO" {
             stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
         } else {
@@ -378,24 +369,19 @@ fn parse_int(var: &[String], int_vars: &Vec<String>, mut stmt:Vec<String>) -> Ve
     return stmt;
 }
 
-fn parse_out(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
+fn parse_out(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["out".to_string()]; 
     if expr.len() > 2 {
         if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..], int_vars, stmt);
-        } else {
-            // I know there's only one argument, which must be a function
-            if expr[2] == "PARO" {
-                stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1], stmt);
-            } else {
-                eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected Parentheses for Function Arguments");
-                exit(1);
-            }
+            stmt = parse_bin_expr(&expr[1..],  stmt);
+        } else if is_fnc_call(expr[1..].to_vec()) {
+            stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1], stmt);
         }
     } else {
         if is_int_lit(&expr[1]) {
             stmt.push(expr[1].clone());
-        } else if int_vars.contains(&expr[1]) {
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&expr[1])
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]){
             stmt.push(format!("{}", expr[1].clone()));
         } else {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Only integer literals or variables/functions evaluating to integer literals can be used as exit codes");
@@ -406,13 +392,14 @@ fn parse_out(expr: Vec<String>, int_vars: &Vec<String>) -> Vec<String> {
 }
 
 
-fn get_bin_expr_len(bin_expr: &Vec<String>, start: usize, fancy_math_stuff: usize) -> usize {
-    
-    if find_bin_operator(&bin_expr[start+1..]) == 0 {
-        return bin_expr[start+1..].len() + start + 1;
-    } 
-
-    return find_bin_operator(&bin_expr[start..]) + start + 1 - start + (start-fancy_math_stuff);
+fn get_bin_expr_len(bin_expr: &[String]) -> usize {
+    let lhalf = find_bin_operator(&bin_expr[0..]);
+    let rhalf = find_bin_operator(&bin_expr[lhalf+1..]);
+    if rhalf > 0 {
+        return lhalf + rhalf+1;
+    } else {
+        return bin_expr.len();
+    }
 
 }
 
@@ -428,13 +415,18 @@ fn find_bin_operator(bin_expr: &[String]) -> usize {
     return 0;
 }
 
-
 fn is_fnc_call(expr:Vec<String>) -> bool {
-    if expr[0] == "fnc" {
+    if expr[0] == "fnc"
+    || expr[0] == "out"
+    || expr[0] == "ret"
+    || TYPES.contains(&expr[0].as_str()) {
+        return false;
+    }
+    if !expr.contains(&"PARO".to_string()) {
         return false;
     }
     if expr[1] != "PARO" {
-        eprintln!("{expr:?}");
+        println!("{:?}", expr);
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `(` after function name in function call");
         exit(1);
     }
@@ -490,10 +482,8 @@ fn is_const_var(tok: &String, consts: &Vec<String>) -> bool {
 }
 
 fn is_print(expr: Vec<String>) -> bool {
-    if expr[0] != "prt".to_string() 
-    && expr[0] != "prf".to_string() 
-    && expr[0] != "pre".to_string() {
-        return false;   
+    if !matches!(expr[0].as_str(), "prt" | "prf" | "pre") {
+        return false;
     }
     if expr.len() < 2 {
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Incomplete Print Expression");
@@ -503,13 +493,15 @@ fn is_print(expr: Vec<String>) -> bool {
         if expr[1].to_string().chars().nth(0) != Some('"')
         || expr[1].to_string().chars().nth(expr[1].len()-1) != Some('"'){
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Standard print statement must contain `\"` around the text");
+            eprintln!("If you meant to print the value of a variable, use `prf`");
             exit(1);
         }
         if expr[1].len() == 2 {
-        eprintln!("\x1b[1mSyntaxError\x1b[0m: Print statement must have text to print");
-        exit(1);
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Print statement must have text to print");
+            exit(1);
+        }
     }
-    }
+    
     return true;
 }
 
@@ -565,16 +557,15 @@ fn is_var_assignment(expr: Vec<String>) -> bool {
 }
 
 
-pub fn parse(tokens: Vec<String>, check_for_out: bool, mut funcs: Vec<String>) -> Vec<Vec<String>> {
-    
+pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
     if check_for_out {
         if !tokens.contains(&"out".to_string()) {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: No exit point specified\nExit points can be specified with `out \x1b[3mn\x1b[0m;`\nwhere \x1b[3mn\x1b[0m is an integer");
             exit(1);
         }
     }
-    let mut int_vars: Vec<String> = vec![];
-    let mut vars: Vec<String> = vec![];
+    let mut vars: HashMap<String, HashMap<String, HashMap<String, Vec<String>>>> = HashMap::new();
+    let mut curr_func: String = String::from("");
     let mut consts: Vec<String> = vec![];
     let mut stmts: Vec<Vec<String>> = vec![];
     let mut expr: Vec<String> = vec![];
@@ -590,34 +581,55 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool, mut funcs: Vec<String>) -
         }   
         if tokens[j] == "CURLC".to_string() {
             stmts.push(vec!["endfunc".to_string()]);
-        }
-        else if is_out(expr.clone()) {
-            stmts.push(parse_out(expr.clone(), &int_vars));
-        } 
-        else if is_var_dec(expr.clone()) {
-            stmts.push(parse_var_dec(&expr[0], &expr[1], &expr[4..], &expr[2], &consts, &int_vars));
+            curr_func = String::from("");
+        } else if is_out(expr.clone()) {
+            stmts.push(parse_out(expr.clone(), &vars, &curr_func));
+        } else if is_var_dec(expr.clone()) {
+            stmts.push(parse_var_dec(&expr[0], &expr[1], &expr[4..], &expr[2], &consts));
             if is_const_var(&expr[2], &consts) {
                 consts.push(expr[2].clone());
-            } else {
-                vars.push(expr[2].clone());
+            } 
+            if &expr[0] == "int" {
+                vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut("int").unwrap().push(expr[2].clone());
             }
-            if &expr[0] == "int" {int_vars.push(expr[2].clone());}
-        }
-        else if is_var_assignment(expr.clone()) {
-            stmts.push(parse_var_ass(&expr[0], &expr[2..], &consts, &int_vars))
+        } else if is_var_assignment(expr.clone()) {
+            stmts.push(parse_var_ass(&expr[0], &expr[2..], &consts))
         } else if is_print(expr.clone()) {
-            stmts.push(parse_print(&expr[0], &expr[1..], &int_vars));
+            stmts.push(parse_print(&expr[0], &expr[1..]));
         } else if is_fnc_dec(expr.clone()) {
             if expr.len() == 4 {
-                stmts.push(parse_fnc_dec(&expr[1], &[], &funcs));
+                stmts.push(parse_fnc_dec(&expr[1], &[], &vars));
+                    vars.insert(expr[1].clone(), HashMap::from([
+                        ("args".to_string(), HashMap::from(
+                            [("int".to_string(), vec![]),]
+                        )),
+                        ("vars".to_string(), HashMap::from(
+                            [("int".to_string(), vec![]),]
+                        )),
+                    ]));
             } else {
-                stmts.push(parse_fnc_dec(&expr[1], &expr[3..expr.len()-1], &funcs));
+                stmts.push(parse_fnc_dec(&expr[1], &expr[3..expr.len()-1], &vars));
+                    vars.insert(expr[1].clone(), HashMap::from([
+                        ("args".to_string(), HashMap::from(
+                            [("int".to_string(), vec![]),]
+                        )),
+                        ("vars".to_string(), HashMap::from(
+                            [("int".to_string(), vec![]),]
+                        )),
+                    ]));
+                    for arg in &expr[3..expr.len()-1] {
+                        if !is_int_lit(arg) {
+                            vars.get_mut(&expr[1]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
+                        }
+                    } 
             }
-            funcs.push(expr[1].clone());
+            curr_func = expr[1].clone();
         } else if is_ret(expr.clone()) {
-            stmts.push(parse_ret(expr.clone(), &int_vars));
+            stmts.push(parse_ret(expr.clone(), &vars, &curr_func));
         } else if is_fnc_call(expr.clone()) {
             stmts.push(parse_fnc_call(&expr[0], &expr[2..expr.len()-1]));
+        } else {
+            exit(11);
         }
         expr.clear();
         i += (j-i)+1;  
