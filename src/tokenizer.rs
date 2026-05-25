@@ -70,6 +70,7 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
     token_pool.insert(")".to_string(), "PARC".to_string());
     token_pool.insert(",".to_string(), "COMMA".to_string());
     token_pool.insert(":".to_string(), "COL".to_string());
+    token_pool.insert("&".to_string(), "AMP".to_string());
     //read file into a char vector
     let mut chars: Vec<char> = vec![];
     let lines:Result<String, std::io::Error> = fs::read_to_string(&code);
