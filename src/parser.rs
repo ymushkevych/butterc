@@ -278,8 +278,9 @@ fn parse_bin_mult(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
 
 fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     let mut stmt: Vec<String> = vec![]; 
-    if prt_type == &"prf".to_string() {
-        stmt.push("prf".to_string());
+    if prt_type == &"prf".to_string() 
+    || prt_type == &"pre".to_string() {
+        stmt.push(prt_type.to_owned());
         let mut terms: Vec<Vec<String>> = vec![];
         let mut s_buf: Vec<String> = vec![];
         for i in 0..expr.len() {
