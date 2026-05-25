@@ -59,6 +59,92 @@ fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String
     return asm;
 }
 
+fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
+    let mut stmt: Vec<String> = vec![];
+    for term in prf {
+        asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+        if term.chars().nth(0) == Some('"') {
+            for i in 1..term.len()-1 {
+                let ch = term.chars().nth(i).unwrap();
+                stmt.insert(0, format!("('{}' << {})", ch, (i-1) * 8));
+                if i == term.len()-2 {
+                    asm = move_to_stack(&"rax".to_string(), &stmt.join("+"), asm);
+                    stmt.clear();
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 2".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", i+1));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                }
+            }
+        } else {
+            if is_bin_expr(term) {
+                asm = gen_bin_expr(&[term.to_owned()], vars, curr_func, true, asm);
+                asm.push("    pop rax".to_string());
+                asm.push(format!("    add rax, 48"));
+                asm.push(format!("    mov rbx, ('' << {})", 8));
+                asm.push(format!("    or rax, rbx"));
+                asm.push("    push rax".to_string());
+                asm.push("    mov rax, 1".to_string());
+                asm.push("    mov rdi, 2".to_string());
+                asm.push("    mov rsi, rsp".to_string());
+                asm.push(format!("    mov rdx, {}", 2));
+                asm.push("    syscall".to_string());
+                asm.push("    add rsp, 16".to_string());
+            } else if is_fnc_call(term){
+                let term: Vec<&str> = term.split_ascii_whitespace().collect();
+                let term: Vec<String> = term.iter().map(|&a| a.to_string()).collect();
+                asm = gen_fnc_call(&term[1],&term[2..], vars, curr_func, true,asm);
+                asm.push(format!("    add rax, 48"));
+                asm.push(format!("    mov rbx, ('' << {})", 8));
+                asm.push(format!("    or rax, rbx"));
+                asm.push("    push rax".to_string());
+                asm.push("    mov rax, 1".to_string());
+                asm.push("    mov rdi, 2".to_string());
+                asm.push("    mov rsi, rsp".to_string());
+                asm.push(format!("    mov rdx, {}", 2));
+                asm.push("    syscall".to_string());
+                asm.push("    add rsp, 16".to_string());
+            } else {
+                if vars.get(curr_func).unwrap().get("stack").unwrap().contains_key(term)
+                {
+                    let mut offset = vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().get(term).unwrap()[0].parse::<i32>().unwrap();
+                    offset = (get_stack_height(vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap())-offset)*8;
+                    if curr_func != "" {
+                        if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(term) {
+                            offset += 8;
+                        }
+                    }
+                    asm.push(format!("    mov rax, [rsp + {}]", offset+8));
+                    asm.push(format!("    add rax, 48"));
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 2".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                } else {
+                    eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", term);
+                    exit(1);
+                }
+            }
+            
+        }
+    }
+    asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+    asm = move_to_stack(&"rax".to_string(), &format!("(10 << 8) + ('' << 0)"), asm);
+    asm.push("    mov rax, 1".to_string());
+    asm.push("    mov rdi, 2".to_string());
+    asm.push("    mov rsi, rsp".to_string());
+    asm.push(format!("    mov rdx, {}", 2));
+    asm.push("    syscall".to_string());
+    asm.push("    add rsp, 16".to_string());
+    return asm;
+}
 
 fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     let mut stmt: Vec<String> = vec![];
@@ -767,7 +853,13 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
             } else {
                 start = gen_print_f(&stmt[1..], &vars, &curr_func,start);
             }
-        }else if &stmt[0] == &"vass".to_string() {
+        } else if &stmt[0] == &"pre".to_string() {
+            if in_func {
+                funcs = gen_print_e(&stmt[1..], &vars, &curr_func,funcs);
+            } else {
+                start = gen_print_e(&stmt[1..], &vars, &curr_func,start);
+            }
+        } else if &stmt[0] == &"vass".to_string() {
             if in_func {
                 funcs = gen_var_var(&stmt[2..], &vars, &curr_func,false, funcs);
             } else {
