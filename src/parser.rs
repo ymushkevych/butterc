@@ -7,7 +7,7 @@ fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<S
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
     if expr.len() > 2 {
         if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..], stmt);
+            stmt = parse_bin_expr(&expr[1..], &"ret".to_string(), stmt);
         } else {
             if expr[2] == "PARO" {
                 stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1],stmt);
@@ -97,14 +97,14 @@ fn parse_fnc_dec(name: &String, args: &[String], vars: &HashMap<String, HashMap<
     return stmt;
 }
 
-fn parse_var_ass(name: &String, value: &[String], consts: &Vec<String>) -> Vec<String> {
-    if is_const_var(name, consts) {
-        eprintln!("\x1b[1mParserError\x1b[0m: Cannot reassign value to constant variable");
+fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
+    if vars.get("const").unwrap().get("names").unwrap().contains_key(name) {
+        eprintln!("\x1b[1mParserError\x1b[0m: constant variables cannot be reassigned after creation");
         exit(1);
     }
     let mut stmt: Vec<String> = vec!["vass".to_string(), name.to_string()];
     if value.len() > 1 {
-        stmt = parse_bin_expr(value, stmt);
+        stmt = parse_bin_expr(value, &"var".to_string(), stmt);
     } else {
         if !is_int_lit(&value[0]) {
             exit(11);
@@ -114,11 +114,7 @@ fn parse_var_ass(name: &String, value: &[String], consts: &Vec<String>) -> Vec<S
     return stmt;
 }
 
-fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &String, consts: &Vec<String>) -> Vec<String> {
-    if is_const_var(name, consts) {
-        eprintln!("\x1b[1mParserError\x1b[0m: Cannot redeclare constant variable");
-        exit(1);
-    }
+fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &String, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     if !TYPES.to_vec().contains(&var_type.as_str()) {
         eprintln!("\x1b[1mSyntaxError\x1b[0m: `{}` is an unsupported variable type.\nExpected one of `{:?}`", var_type, TYPES);
         exit(1);
@@ -127,11 +123,22 @@ fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &S
         eprintln!("\x1b[1mSyntaxError\x1b[0m: `{}` is an unsupported attribute.\nExpected one of `{:?}`", attribute, ATTRIBUTES);
         exit(1);
     }
+    if vars.get("const").unwrap().get("names").unwrap().contains_key(name) {
+        if attribute == "const" {
+            eprintln!("\x1b[1mParserError\x1b[0m: cannot redeclare constant variables");
+            exit(1);
+        } else {
 
-    let mut stmt: Vec<String> = vec!["vdec".to_string(), attribute.to_string(), name.to_string()];
+        }
+    }
+    if vars.get(curr_scope).unwrap().get("vars").unwrap().get("names").unwrap().contains(name) {
+        eprintln!("\x1b[1mParserError\x1b[0m: variable `{name}` has already been declared in this scope")
+    }
+
+    let mut stmt: Vec<String> = vec!["vdec".to_string(), attribute.to_string(), var_type.to_string(), name.to_string()];
 
     if var_type == "int" {
-        stmt = parse_int(var, stmt);
+        stmt = parse_int(var, attribute, stmt);
     } else if var_type == "vec" {
         exit(11);
     } else if var_type == "str" {
@@ -143,7 +150,7 @@ fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &S
     return stmt;
 }
 
-fn parse_bin_expr(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
+fn parse_bin_expr(expr: &[String], attribute: &String, mut stmt: Vec<String>) -> Vec<String> {
     let mut expr = expr.to_vec();
     while expr.len() > 2 {
         let bin_op_loc = find_bin_operator(&expr[0..]);
@@ -152,6 +159,13 @@ fn parse_bin_expr(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
             exit(1);
         }
         let expr_len = get_bin_expr_len(&expr);
+        if attribute == "const" {
+            if !is_int_lit(&expr[0..bin_op_loc].concat())
+            || !is_int_lit(&expr[bin_op_loc+1..expr_len].concat()) {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use variables or functions in constant binary expressions");
+                exit(1);
+            }
+        }
 
         if expr[bin_op_loc] == "PLUS" || expr[bin_op_loc] == "MIN" {
             if expr.len() == expr_len {
@@ -171,6 +185,13 @@ fn parse_bin_expr(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
                     exit(1);
                 }
                 let expr_2_len = get_bin_expr_len(&expr[bin_op_2_loc+1..]);
+                if attribute == "const" {
+                    if !is_int_lit(&expr[expr_len..bin_op_2_loc].concat())
+                    || !is_int_lit(&expr[bin_op_2_loc+1..expr_2_len].concat()) {
+                        eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use variables or functions in constant binary expressions");
+                        exit(1);
+                    }
+                }
                 if expr[bin_op_2_loc] == "TIMES" || expr[bin_op_2_loc] == "DIV" {
                     if expr[bin_op_2_loc] == "TIMES" {
                         stmt = parse_bin_mult(&expr[expr_len..expr_2_len+1], stmt);
@@ -182,12 +203,12 @@ fn parse_bin_expr(expr: &[String], mut stmt: Vec<String>) -> Vec<String> {
                         expr.insert(expr_len, "STACK".to_string())
                     }
                 } else if expr[bin_op_2_loc] == "PLUS" || expr[bin_op_2_loc] == "MIN"{
-                    if expr[bin_op_loc] == "TIMES" {
-                        stmt = parse_bin_mult(&expr[0..expr_len+1], stmt);
+                    if expr[bin_op_loc] == "PLUS" {
+                        stmt = parse_bin_add(&expr[0..expr_len+1], stmt);
                         expr.drain(0..expr_len);
                         expr.insert(0, "STACK".to_string())
                     } else {
-                        stmt = parse_bin_div(&expr[0..expr_len+1], stmt);
+                        stmt = parse_bin_sub(&expr[0..expr_len+1], stmt);
                         expr.drain(0..expr_len);
                         expr.insert(0, "STACK".to_string())
                     }
@@ -299,7 +320,7 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
         let mut _type = "var";
         for substring in terms {
             if is_bin_expr(&substring[0..]) {
-                stmt = parse_bin_expr(&substring[0..],  stmt);
+                stmt = parse_bin_expr(&substring[0..], &"var".to_string(), stmt);
             } else if is_fnc_call(substring.clone()) {
                 stmt = parse_inline_fnc_call(&substring[0], &substring[2..substring.len()-1], stmt);
             } else {
@@ -349,11 +370,15 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     return stmt;
 }
 
-fn parse_int(var: &[String], mut stmt:Vec<String>) -> Vec<String> {
+fn parse_int(var: &[String], attribute: &String, mut stmt:Vec<String>) -> Vec<String> {
     if var.len() > 1 {
         if is_bin_expr(var){
-            stmt = parse_bin_expr(var, stmt);
+            stmt = parse_bin_expr(var, attribute, stmt);
         } else if var[1] == "PARO" {
+            if attribute == "const" {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
+                exit(1);
+            }
             stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
         } else {
             exit(1);
@@ -374,7 +399,7 @@ fn parse_out(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<S
     let mut stmt: Vec<String> = vec!["out".to_string()]; 
     if expr.len() > 2 {
         if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..],  stmt);
+            stmt = parse_bin_expr(&expr[1..],  &"out".to_string(), stmt);
         } else if is_fnc_call(expr[1..].to_vec()) {
             stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1], stmt);
         }
@@ -478,10 +503,6 @@ fn is_fnc_dec(expr: Vec<String>) -> bool {
     return true;
 }
 
-fn is_const_var(tok: &String, consts: &Vec<String>) -> bool {
-    return consts.contains(tok);
-}
-
 fn is_print(expr: Vec<String>) -> bool {
     if !matches!(expr[0].as_str(), "prt" | "prf" | "pre") {
         return false;
@@ -566,8 +587,14 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         }
     }
     let mut vars: HashMap<String, HashMap<String, HashMap<String, Vec<String>>>> = HashMap::new();
+    vars.insert(
+        "const".to_string(),
+        HashMap::from([
+            ("int".to_string(), HashMap::new()),
+            ("names".to_string(), HashMap::new()),
+        ])
+    );
     let mut curr_func: String = String::from("");
-    let mut consts: Vec<String> = vec![];
     let mut stmts: Vec<Vec<String>> = vec![];
     let mut expr: Vec<String> = vec![];
     let mut i: usize = 0;
@@ -586,15 +613,22 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         } else if is_out(expr.clone()) {
             stmts.push(parse_out(expr.clone(), &vars, &curr_func));
         } else if is_var_dec(expr.clone()) {
-            stmts.push(parse_var_dec(&expr[0], &expr[1], &expr[4..], &expr[2], &consts));
-            if is_const_var(&expr[2], &consts) {
-                consts.push(expr[2].clone());
-            } 
-            if &expr[0] == "int" {
-                vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut("int").unwrap().push(expr[2].clone());
+            stmts.push(parse_var_dec(&expr[0], &expr[1], &expr[4..], &expr[2], &vars, &curr_func));
+            if &expr[1] == "const" {
+                vars.get_mut("const").unwrap().get_mut(&expr[0]).unwrap().insert(
+                    expr[2].to_string(),
+                    vec!["0".to_string()]
+                );
+                vars.get_mut("const").unwrap().get_mut("names").unwrap().insert(
+                    expr[2].to_string(),
+                    vec!["0".to_string()]
+                );
+            } else {
+                vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut(&expr[0]).unwrap().push(expr[2].clone());
+                vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(expr[2].clone());
             }
         } else if is_var_assignment(expr.clone()) {
-            stmts.push(parse_var_ass(&expr[0], &expr[2..], &consts))
+            stmts.push(parse_var_ass(&expr[0], &expr[2..], &vars))
         } else if is_print(expr.clone()) {
             stmts.push(parse_print(&expr[0], &expr[1..]));
         } else if is_fnc_dec(expr.clone()) {
@@ -602,20 +636,24 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                 stmts.push(parse_fnc_dec(&expr[1], &[], &vars));
                     vars.insert(expr[1].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
-                            [("int".to_string(), vec![]),]
+                            [("int".to_string(), vec![]),
+                            ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
-                            [("int".to_string(), vec![]),]
+                            [("int".to_string(), vec![]),
+                            ("names".to_string(), vec![]),]
                         )),
                     ]));
             } else {
                 stmts.push(parse_fnc_dec(&expr[1], &expr[3..expr.len()-1], &vars));
                     vars.insert(expr[1].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
-                            [("int".to_string(), vec![]),]
+                            [("int".to_string(), vec![]),
+                            ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
-                            [("int".to_string(), vec![]),]
+                            [("int".to_string(), vec![]),
+                            ("names".to_string(), vec![]),]
                         )),
                     ]));
                     for arg in &expr[3..expr.len()-1] {
@@ -630,7 +668,9 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         } else if is_fnc_call(expr.clone()) {
             stmts.push(parse_fnc_call(&expr[0], &expr[2..expr.len()-1]));
         } else {
-            exit(11);
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: could not parse expression `{};`", expr.join(" ").to_string());
+            eprintln!("Does not match any known expression type");
+            exit(1);
         }
         expr.clear();
         i += (j-i)+1;  
