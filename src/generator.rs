@@ -22,7 +22,7 @@ fn is_bin_expr(expr: &String) -> bool {
     || expr.contains(&"MIN".to_string())
     || expr.contains(&"DIV".to_string()) {
         return true;
-    } else {
+    } else {        
         return false;
     }
 }
@@ -38,6 +38,14 @@ fn has_bin_expr(exprs: &[String]) -> bool {
     return true;
 }
 
+
+fn get_constant_len(constant: &String) -> i32 {
+    let mut size: i32 = 0;
+    for _ch in constant.chars() {
+        size += 1;
+    }
+    return size;
+}
 
 fn get_stack_height(stack: &HashMap<String, Vec<String>>) -> i32 {
     let mut count: i32 = -1;
@@ -56,6 +64,23 @@ fn move_to_stack(reg: &String, val: &String, mut asm: Vec<String>) -> Vec<String
     asm.push("    mov ".to_string() + reg + ", " + val);
     asm.push("    push ".to_string() + reg);
     
+    return asm;
+}
+
+
+fn gen_constant(name : &String, _type: &String, value: &[String], mut asm: Vec<String>) -> Vec<String> {    
+    if _type == "int" {
+        if has_bin_expr(value) {
+            asm = gen_const_bin_expr(value, asm);
+        } else {
+            asm.push(format!("{name} dq {}", value.concat()));
+        }
+    } else if _type == "str" {
+        asm.push(format!("{name} db {}, 0", value.concat()));
+    } else {
+        exit(11);
+    }
+
     return asm;
 }
 
@@ -117,6 +142,18 @@ fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                         }
                     }
                     asm.push(format!("    mov rax, [rsp + {}]", offset+8));
+                    asm.push(format!("    add rax, 48"));
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 2".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                } else if vars.get("consts").unwrap().get("int").unwrap().contains_key(term) {
+                    asm.push(format!("    mov rax, [{}]", term));
                     asm.push(format!("    add rax, 48"));
                     asm.push(format!("    mov rbx, ('' << {})", 8));
                     asm.push(format!("    or rax, rbx"));
@@ -214,6 +251,18 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                     asm.push(format!("    mov rdx, {}", 2));
                     asm.push("    syscall".to_string());
                     asm.push("    add rsp, 16".to_string());
+                } else if vars.get("const").unwrap().get("int").unwrap().contains_key(term)  {
+                    asm.push(format!("    mov rax, [{}]", term));
+                    asm.push(format!("    add rax, 48"));
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 1".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
                 } else {
                     eprintln!("\x1b[1mParserError\x1b[0m: Used undefined or inaccessible variable, `{}`", term);
                     exit(1);
@@ -262,7 +311,10 @@ fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, HashMap<S
                         eprintln!("\x1b[1mSyntaxError\x1b[0m: Functions cannot act as arguments to other functions");
                         eprintln!("Try using a variable with the same value instead");
                         exit(1);
-                    } else {
+                    } else if vars.get("consts").unwrap().get("int").unwrap().contains_key(arg)  {
+                        asm = move_to_stack(&"rax".to_string(), &format!("[{}]", arg), asm);
+                    }
+                    else {
                         eprintln!("\x1b[1mParserError\x1b[0m: Type mismatch");
                         exit(1);
                     }
@@ -743,22 +795,6 @@ fn gen_out(out_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
     return asm;
 }
 
-fn gen_const_var(const_name: &String, const_val: &[String], mut asm: Vec<String>) -> Vec<String> {
-    if const_val.len() > 1 
-    || const_val[0].to_string().contains(&"PLUS".to_string()) 
-    || const_val[0].to_string().contains(&"TIMES".to_string()) 
-    || const_val[0].to_string().contains(&"MIN".to_string())
-    || const_val[0].to_string().contains(&"DIV".to_string()) { 
-
-        let _const = gen_const_bin_expr(const_val, vec![]).join(" ");
-        asm.push("    ".to_string() + &const_name + " dd " + &_const);
-    } else {
-        asm.push("    ".to_string() + &const_name + " dd " + &const_val[0]);
-    }
-
-    return asm;
-}
-
 fn gen_var_var(var_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, in_print: bool, mut asm: Vec<String>) -> Vec<String> {
     if var_val.len() > 1 
     || var_val[0].to_string().contains(&"PLUS".to_string()) 
@@ -792,8 +828,13 @@ fn gen_var_var(var_val: &[String], vars: &HashMap<String, HashMap<String, HashMa
 
 pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_main: bool) {
     let mut vars: HashMap<String, HashMap<String, HashMap<String, Vec<String>>>> = HashMap::new();
+    vars.insert(
+        "const".to_string(),
+        HashMap::from([
+            ("int".to_string(), HashMap::new()),
+        ])
+    );
     let mut curr_func: String = String::from("");
-    let mut consts: Vec<String> = vec![];
     let mut stack_height: i32 = 0;
     let asm_name = name.to_owned() + ".asm";
     let mut funcs: Vec<String> = vec![];
@@ -819,28 +860,30 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                 start = gen_out(&stmt[1..], &vars, &curr_func, start);
             }
         } else if &stmt[0] == &"vdec".to_string() {
-            if &stmt[1] == &"const".to_string() {
-                data = gen_const_var(&stmt[2], &stmt[3..], data);
-                consts.push(stmt[2].clone());
-            } else {
                 if in_func {
-                    funcs = gen_var_var(&stmt[3..], &vars, &curr_func, false, funcs);
+                    funcs = gen_var_var(&stmt[4..], &vars, &curr_func, false, funcs);
                 } else {
-                    start = gen_var_var(&stmt[3..], &vars, &curr_func, false, start);
+                    start = gen_var_var(&stmt[4..], &vars, &curr_func, false, start);
                 }
-                let name = stmt[2].clone();
-                vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap().insert(
-                    name.clone(), 
-                    vec![stack_height.to_string()]
-                );
-                vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut("int").unwrap().push(
-                    name.clone()
-                );
-                vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(
-                    name.clone()
-                );
-                stack_height += 1;
-            }
+                if &stmt[1] == &"const".to_string() {
+                    data = gen_constant(&stmt[3], &stmt[2], &stmt[4..], data);
+                        vars.get_mut(&"const".to_string()).unwrap().get_mut(&stmt[2]).unwrap().insert(
+                        stmt[3].clone(),
+                        vec![get_constant_len(&stmt[4..].concat()).to_string()]
+                    );
+                } else {
+                    vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap().insert(
+                        stmt[3].clone(), 
+                        vec![stack_height.to_string()]
+                    );
+                    vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut(&stmt[2]).unwrap().push(
+                        stmt[3].clone()
+                    );
+                    vars.get_mut(&curr_func).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(
+                        stmt[3].clone()
+                    );
+                    stack_height += 1;
+                }
         } else if &stmt[0] == &"prt".to_string() {
             if in_func {
                 funcs = gen_print(&stmt[1], funcs);
