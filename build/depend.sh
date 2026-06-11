@@ -16,6 +16,6 @@ fi
 if ! command -v ld &> /dev/null; then
 	echo "installing ld"
 	echo "... and other binary utils"
-	sud apt install binutils
+	sudo apt install binutils
 fi
 
