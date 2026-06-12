@@ -189,13 +189,13 @@ fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap
     } else {
         if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(name) 
         || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(name) {
-            stmt = parse_int(value,vars, &"int".to_string(), curr_scope, stmt);
+            stmt = parse_int(value,vars, &"var".to_string(), curr_scope, stmt);
         } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("str").unwrap().contains(name) 
         || vars.get(curr_scope).unwrap().get("args").unwrap().get("str").unwrap().contains(name) {
-            stmt = parse_str(value,vars, &"int".to_string(), curr_scope, stmt);
+            stmt = parse_str(value,vars, &"var".to_string(), curr_scope, stmt);
         } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("bool").unwrap().contains(name) 
         || vars.get(curr_scope).unwrap().get("args").unwrap().get("bool").unwrap().contains(name){
-            stmt = parse_bool(value,vars, &"int".to_string(), curr_scope, stmt);
+            stmt = parse_bool(value,vars, &"var".to_string(), curr_scope, stmt);
         } else {
             exit(11);
         }
