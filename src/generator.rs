@@ -81,6 +81,8 @@ fn gen_constant(name : &String, _type: &String, value: &[String], mut asm: Vec<S
         }
     } else if _type == "str" {
         asm.push(format!("{name} db {}", value.concat()));
+    } else if _type == "bool" {
+        asm.push(format!("    {name} dw {}", value.concat()));
     } else {
         exit(11);
     }
@@ -856,8 +858,10 @@ fn gen_var_var(var_val: &[String], vars: &HashMap<String, HashMap<String, HashMa
         if var_val.len() == 1 {
             if is_int_lit(&var_val[0]) {
                 asm.push("    mov rax, ".to_string() + &var_val[0]);
+                asm.push("    push rax".to_string());
             } else {
                 asm.push("    mov rax, ".to_string() + &format!("('{}' << 0)", var_val[0].chars().nth(0).unwrap()));
+                asm.push("    push rax".to_string());
             }
         } else {
             for word in var_val {
@@ -878,6 +882,7 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
         "const".to_string(),
         HashMap::from([
             ("int".to_string(), HashMap::new()),
+            ("bool".to_string(), HashMap::new()),
             ("str".to_string(), HashMap::new()),
         ])
     );
@@ -957,7 +962,7 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
             }
             vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap().insert(
                 stmt[2].clone(), 
-                vec![stack_height.to_string()]
+                vec![stack_height.to_string(), (stmt.len()-3).to_string()]
             );
             stack_height += 1;
         } else if &stmt[0] == "fdec"{
@@ -975,11 +980,13 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                 ("args".to_string(), HashMap::from([
                     ("int".to_string(), vec![]),
                     ("str".to_string(), vec![]),
+                    ("bool".to_string(), vec![]),
                     ("names".to_string(), vec![]),
                 ])),
                 ("vars".to_string(), HashMap::from([
                     ("int".to_string(), vec![]),
                     ("str".to_string(), vec![]),
+                    ("bool".to_string(), vec![]),
                     ("names".to_string(), vec![]),
                 ])),
                 ("stack".to_string(), HashMap::from([
