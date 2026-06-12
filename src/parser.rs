@@ -3,16 +3,53 @@ use std::{process::exit, collections::HashMap};
 const TYPES: [&str; 4] = ["int", "vec", "str", "bool"];
 const ATTRIBUTES: [&str; 2] = ["var", "const"];
 
-fn parse_str(var: &[String], funcs: &HashMap<String, HashMap<String, Vec<String>>>, attribute: &String, mut stmt:Vec<String>) -> Vec<String> {
+fn parse_bool(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, attribute: &String, curr_scope: &String, mut stmt:Vec<String>) -> Vec<String> {
     if var.len() > 1 {
         if is_bin_expr(var) {
-            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use strings in binary expressions");
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use booleans in binary expressions");
+            exit(1);
         } else if var[1] == "PARO" {
             if attribute == "const" {
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
                 exit(1);
             }
-            if funcs.get("str").unwrap().contains_key(&var[0]) {
+            if vars.get("funcs").unwrap().get("bool").unwrap().contains_key(&var[0]) {
+                stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
+            } else {
+                eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
+                exit(1);
+            }
+        }
+    } else {
+        if matches!(var[0].as_str(), "True" | "1" | "0" | "False") {
+            match var[0].as_str() {
+                "True" => {stmt.push(String::from("1"))},
+                "False" => {stmt.push(String::from("0"))},
+                _ => {stmt.push(var[0].clone())},
+            }
+        } else if vars.get(curr_scope).unwrap().get("args").unwrap().get("bool").unwrap().contains(&var[0])
+        || vars.get(curr_scope).unwrap().get("vars").unwrap().get("bool").unwrap().contains(&var[0])
+        || vars.get("const").unwrap().get("bool").unwrap().contains_key(&var[0]){
+            stmt.push(var[0].clone()); 
+        } else {
+            eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
+            exit(1);
+        }
+    }
+    return stmt;
+}
+
+fn parse_str(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, attribute: &String, curr_scope: &String, mut stmt:Vec<String>) -> Vec<String> {
+    if var.len() > 1 {
+        if is_bin_expr(var) {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use strings in binary expressions");
+            exit(1);
+        } else if var[1] == "PARO" {
+            if attribute == "const" {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
+                exit(1);
+            }
+            if vars.get("func").unwrap().get("str").unwrap().contains_key(&var[0]) {
                 stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
             } else {
                 eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
@@ -32,6 +69,10 @@ fn parse_str(var: &[String], funcs: &HashMap<String, HashMap<String, Vec<String>
             } else if attribute == "const" {
                 stmt.push(var[0].clone());
             }
+        } else if vars.get(curr_scope).unwrap().get("args").unwrap().get("str").unwrap().contains(&var[0])
+        || vars.get(curr_scope).unwrap().get("vars").unwrap().get("str").unwrap().contains(&var[0])
+        || vars.get("const").unwrap().get("str").unwrap().contains_key(&var[0]){
+            stmt.push(var[0].clone());
         } else {
             eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
             exit(1);
@@ -44,28 +85,14 @@ fn parse_str(var: &[String], funcs: &HashMap<String, HashMap<String, Vec<String>
 
 fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
-    if expr.len() > 2 {
-        if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..], &"ret".to_string(), stmt);
-        } else {
-            if expr[2] == "PARO" {
-                stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1],stmt);
-            } else {
-                eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected Parentheses for Function Arguments");
-                exit(1);
-            }
-        }
+    if vars.get("funcs").unwrap().get("int").unwrap().contains_key(curr_scope) {
+        stmt = parse_int(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
+    }else if vars.get("funcs").unwrap().get("str").unwrap().contains_key(curr_scope) {
+        stmt = parse_str(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
+    } else if vars.get("funcs").unwrap().get("bool").unwrap().contains_key(curr_scope) {
+        stmt = parse_bool(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
     } else {
-        if is_int_lit(&expr[1]) {
-            stmt.push(expr[1].clone());
-        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&expr[1]) 
-        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]) 
-        || vars.get("const").unwrap().get("int").unwrap().contains_key(&expr[1]) {
-            stmt.push(format!("{}", expr[1].clone()));
-        } else {
-            eprintln!("\x1b[1mSyntaxError\x1b[0m: Only integer literals or variables evaluating to integer literals can be returned");
-            exit(1);
-        }
+        exit(11);
     }
     return stmt;
 }
@@ -146,10 +173,18 @@ fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap
     if value.len() > 1 {
         stmt = parse_bin_expr(value, &"var".to_string(), stmt);
     } else {
-        if !is_int_lit(&value[0]) {
+        if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(name) {
+            stmt = parse_int(value,vars, &"var".to_string(), curr_scope, stmt);
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("str").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("str").unwrap().contains(name) {
+            stmt = parse_str(value,vars, &"var".to_string(), curr_scope, stmt);
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("bool").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("bool").unwrap().contains(name){
+            stmt = parse_bool(value,vars, &"var".to_string(), curr_scope, stmt);
+        } else {
             exit(11);
         }
-        stmt.push(value[0].to_string());
     }
     return stmt;
 }
@@ -178,13 +213,13 @@ fn parse_var_dec(var_type: &String, attribute: &String, var: &[String], name: &S
     let mut stmt: Vec<String> = vec!["vdec".to_string(), attribute.to_string(), var_type.to_string(), name.to_string()];
 
     if var_type == "int" {
-        stmt = parse_int(var, attribute, stmt);
+        stmt = parse_int(var, vars, attribute,curr_scope, stmt);
     } else if var_type == "vec" {
         exit(11);
     } else if var_type == "str" {
-        exit(11);
+        stmt = parse_str(var, vars, attribute,curr_scope, stmt);
     } else if var_type == "bool"{
-        exit(11);
+        stmt = parse_bool(var, vars, attribute,curr_scope, stmt)
     }
 
     return stmt;
@@ -410,7 +445,7 @@ fn parse_print(prt_type: &String, expr: &[String]) -> Vec<String> {
     return stmt;
 }
 
-fn parse_int(var: &[String], attribute: &String, mut stmt:Vec<String>) -> Vec<String> {
+fn parse_int(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, attribute: &String, curr_scope: &String, mut stmt:Vec<String>) -> Vec<String> {
     if var.len() > 1 {
         if is_bin_expr(var){
             stmt = parse_bin_expr(var, attribute, stmt);
@@ -431,6 +466,10 @@ fn parse_int(var: &[String], attribute: &String, mut stmt:Vec<String>) -> Vec<St
     } else {
         if is_int_lit(&var[0]) {
             stmt.push(var[0].to_owned()); 
+        } else if vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&var[0])
+        || vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&var[0])
+        || vars.get("const").unwrap().get("int").unwrap().contains_key(&var[0]){
+            stmt.push(var[0].clone()); 
         } else {
             eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
             exit(1);
@@ -546,7 +585,7 @@ fn is_ret(expr:Vec<String>) -> bool {
 }
 
 fn is_fnc_dec(expr: Vec<String>) -> bool {
-    if expr[0] != "int".to_string() && expr[0] != "str" {
+    if expr[0] != "int".to_string() && expr[0] != "str" && expr[0] != "bool" {
         return false;
     }
     if expr[1] != "fnc".to_string() {
@@ -607,7 +646,7 @@ fn is_out(expr: Vec<String>) -> bool {
 }
 
 fn is_var_dec(expr: Vec<String>) -> bool {
-    if expr[0] != "int".to_string() && expr[0] != "vec" {
+    if expr[0] != "int".to_string() && expr[0] != "str" && expr[0] != "bool" {
         return false;
     }
     if expr[1] == "fnc".to_string() {
@@ -651,6 +690,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         HashMap::from([
             ("int".to_string(), HashMap::new()),
             ("str".to_string(), HashMap::new()),
+            ("bool".to_string(), HashMap::new()),
             ("names".to_string(), HashMap::new()),
         ])
     );
@@ -659,6 +699,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         HashMap::from([
             ("int".to_string(), HashMap::new()),
             ("str".to_string(), HashMap::new()),
+            ("bool".to_string(), HashMap::new()),
             ("names".to_string(), HashMap::new()),
         ])
     );
@@ -696,7 +737,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                 vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(expr[2].clone());
             }
         } else if is_var_assignment(expr.clone()) {
-            stmts.push(parse_var_ass(&expr[0], &expr[2..], &vars))
+            stmts.push(parse_var_ass(&expr[0], &expr[2..], &vars, &curr_func))
         } else if is_print(expr.clone()) {
             stmts.push(parse_print(&expr[0], &expr[1..]));
         } else if is_fnc_dec(expr.clone()) {
@@ -706,11 +747,13 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
                             ("str".to_string(), vec![]),
+                            ("bool".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
                             ("str".to_string(), vec![]),
+                            ("bool".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                     ]));
@@ -721,14 +764,17 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
                             ("str".to_string(), vec![]),
+                            ("bool".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
                             ("str".to_string(), vec![]),
+                            ("bool".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                     ]));
+                    vars.get_mut("funcs").unwrap().get_mut(&expr[0]).unwrap().insert(expr[2].clone(), vec![]);
                     for arg in &expr[4..expr.len()-1] {
                         if !is_int_lit(arg) {
                             vars.get_mut(&expr[1]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
