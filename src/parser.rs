@@ -85,28 +85,14 @@ fn parse_str(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<Stri
 
 fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
-    if expr.len() > 2 {
-        if is_bin_expr(&expr[1..]) {
-            stmt = parse_bin_expr(&expr[1..], &"ret".to_string(), stmt);
-        } else {
-            if expr[2] == "PARO" {
-                stmt = parse_inline_fnc_call(&expr[1], &expr[3..expr.len()-1],stmt);
-            } else {
-                eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected Parentheses for Function Arguments");
-                exit(1);
-            }
-        }
+    if vars.get("funcs").unwrap().get("int").unwrap().contains_key(curr_scope) {
+        stmt = parse_int(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
+    }else if vars.get("funcs").unwrap().get("str").unwrap().contains_key(curr_scope) {
+        stmt = parse_str(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
+    } else if vars.get("funcs").unwrap().get("bool").unwrap().contains_key(curr_scope) {
+        stmt = parse_bool(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
     } else {
-        if is_int_lit(&expr[1]) {
-            stmt.push(expr[1].clone());
-        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&expr[1]) 
-        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]) 
-        || vars.get("const").unwrap().get("int").unwrap().contains_key(&expr[1]) {
-            stmt.push(format!("{}", expr[1].clone()));
-        } else {
-            eprintln!("\x1b[1mSyntaxError\x1b[0m: Only integer literals or variables evaluating to integer literals can be returned");
-            exit(1);
-        }
+        exit(11);
     }
     return stmt;
 }
@@ -788,6 +774,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                             ("names".to_string(), vec![]),]
                         )),
                     ]));
+                    vars.get_mut("funcs").unwrap().get_mut(&expr[0]).unwrap().insert(expr[2].clone(), vec![]);
                     for arg in &expr[4..expr.len()-1] {
                         if !is_int_lit(arg) {
                             vars.get_mut(&expr[1]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
