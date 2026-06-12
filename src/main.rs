@@ -6,7 +6,7 @@ mod generator;
 
 fn main() {
     let arguments: Vec<String> = env::args().collect();  
-    if arguments.len() == 0 {
+    if arguments.len() == 1 {
         eprintln!("\x1b[1mCompilationError\x1b[0m: Expected file");
         exit(1);
     }
