@@ -187,10 +187,18 @@ fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap
     if value.len() > 1 {
         stmt = parse_bin_expr(value, &"var".to_string(), stmt);
     } else {
-        if !is_int_lit(&value[0]) {
+        if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(name) {
+            stmt = parse_int(value,vars, &"int".to_string(), curr_scope, stmt);
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("str").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("str").unwrap().contains(name) {
+            stmt = parse_str(value,vars, &"int".to_string(), curr_scope, stmt);
+        } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("bool").unwrap().contains(name) 
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("bool").unwrap().contains(name){
+            stmt = parse_bool(value,vars, &"int".to_string(), curr_scope, stmt);
+        } else {
             exit(11);
         }
-        stmt.push(value[0].to_string());
     }
     return stmt;
 }
@@ -743,7 +751,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                 vars.get_mut(&curr_func.to_string()).unwrap().get_mut("vars").unwrap().get_mut("names").unwrap().push(expr[2].clone());
             }
         } else if is_var_assignment(expr.clone()) {
-            stmts.push(parse_var_ass(&expr[0], &expr[2..], &vars))
+            stmts.push(parse_var_ass(&expr[0], &expr[2..], &vars, &curr_func))
         } else if is_print(expr.clone()) {
             stmts.push(parse_print(&expr[0], &expr[1..]));
         } else if is_fnc_dec(expr.clone()) {
