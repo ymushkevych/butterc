@@ -84,7 +84,7 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
     || chars.iter().all(|x| [' ', '\n'].contains(x)) {
         println!("\x1b[1mEmptyFileError\x1b[0m: Empty file provided");
         println!("All `.btr` files must contain a `main` function");
-        println!("Try inserting `fnc main() {}`", "{}");
+        println!("Try inserting `int fnc main() {}`", "{}");
         exit(1);
     }
 
