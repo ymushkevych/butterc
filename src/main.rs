@@ -11,6 +11,10 @@ fn main() {
         exit(1);
     }
     if get_ext(arguments[1].clone()) == "btr".to_string() {
+        if !fs::exists(arguments[1].clone()).unwrap() {
+            eprintln!("\x1b[1mFileNotFoundError\x1b[0m: No such file `{}`", arguments[1].clone());
+            exit(1);
+        }
         let tokens: Vec<String> = tokenizer::tokenize(arguments[1].clone(), &arguments[0..]);
         let code: Vec<Vec<String>> = parser::parse(tokens,false, vec![]);
         generator::write_asm(code, get_name(arguments[1].clone()), true, true);
@@ -18,7 +22,7 @@ fn main() {
         link(get_name(arguments[1].clone()));
     } else {
         eprintln!("\x1b[1mCompilationError\x1b[0m: Incompatible File Extension\nExpected `.btr``");
-        eprintln!("For proper usage, run `butterc file.btr`");
+        eprintln!("For proper usage, run `butterc <file>.btr`");
         exit(1);    
     }
 
