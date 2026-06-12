@@ -2,6 +2,9 @@
 
 set -e
 
+echo "installing dependencies"
+bash ./depend.sh
+
 echo "Compiling compiler using rustc..."
 rustc -o butterc ../src/main.rs
 
