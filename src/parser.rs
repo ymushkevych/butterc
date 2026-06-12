@@ -3,6 +3,45 @@ use std::{process::exit, collections::HashMap};
 const TYPES: [&str; 4] = ["int", "vec", "str", "bool"];
 const ATTRIBUTES: [&str; 2] = ["var", "const"];
 
+fn parse_str(var: &[String], funcs: &HashMap<String, HashMap<String, Vec<String>>>, attribute: &String, mut stmt:Vec<String>) -> Vec<String> {
+    if var.len() > 1 {
+        if is_bin_expr(var) {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use strings in binary expressions");
+        } else if var[1] == "PARO" {
+            if attribute == "const" {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
+                exit(1);
+            }
+            if funcs.get("str").unwrap().contains_key(&var[0]) {
+                stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
+            } else {
+                eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
+                exit(1);
+            }
+        } else {
+            exit(1);
+        }
+    } else {
+        if is_string_lit(&var[0]) {
+            if attribute == "var" {
+                for ch in var[0].chars() {
+                    if ch != '"' {
+                        stmt.push(ch.to_string());
+                    }
+                }
+            } else if attribute == "const" {
+                stmt.push(var[0].clone());
+            }
+        } else {
+            eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
+            exit(1);
+        }
+    }
+    
+    return stmt;
+
+}
+
 fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
     if expr.len() > 2 {
@@ -20,7 +59,8 @@ fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<S
         if is_int_lit(&expr[1]) {
             stmt.push(expr[1].clone());
         } else if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(&expr[1]) 
-        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]) {
+        || vars.get(curr_scope).unwrap().get("args").unwrap().get("int").unwrap().contains(&expr[1]) 
+        || vars.get("const").unwrap().get("int").unwrap().contains_key(&expr[1]) {
             stmt.push(format!("{}", expr[1].clone()));
         } else {
             eprintln!("\x1b[1mSyntaxError\x1b[0m: Only integer literals or variables evaluating to integer literals can be returned");
@@ -379,7 +419,12 @@ fn parse_int(var: &[String], attribute: &String, mut stmt:Vec<String>) -> Vec<St
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
                 exit(1);
             }
-            stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
+            if funcs.get("str").unwrap().contains_key(&var[0]) {
+                stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
+            } else {
+                eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
+                exit(1);
+            }
         } else {
             exit(1);
         }
@@ -441,6 +486,14 @@ fn find_bin_operator(bin_expr: &[String]) -> usize {
     return 0;
 }
 
+
+fn is_string_lit(tok: &String) -> bool {
+    if tok.chars().nth(0) == Some('"') && tok.chars().nth(tok.len()-1) == Some('"') {
+        return true;
+    }
+    return false;
+}
+
 fn is_fnc_call(expr:Vec<String>) -> bool {
     if expr[0] == "fnc"
     || expr[0] == "out"
@@ -493,7 +546,10 @@ fn is_ret(expr:Vec<String>) -> bool {
 }
 
 fn is_fnc_dec(expr: Vec<String>) -> bool {
-    if expr[0] != "fnc".to_string() {
+    if expr[0] != "int".to_string() && expr[0] != "str" {
+        return false;
+    }
+    if expr[1] != "fnc".to_string() {
         return false;
     }
     if expr.len() < 4 {
@@ -554,6 +610,9 @@ fn is_var_dec(expr: Vec<String>) -> bool {
     if expr[0] != "int".to_string() && expr[0] != "vec" {
         return false;
     }
+    if expr[1] == "fnc".to_string() {
+        return false;
+    }
     if expr.len() < 5 {
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Incomplete Variable Declaration Expression");
         exit(1);
@@ -591,6 +650,15 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         "const".to_string(),
         HashMap::from([
             ("int".to_string(), HashMap::new()),
+            ("str".to_string(), HashMap::new()),
+            ("names".to_string(), HashMap::new()),
+        ])
+    );
+    vars.insert(
+        "funcs".to_string(),
+        HashMap::from([
+            ("int".to_string(), HashMap::new()),
+            ("str".to_string(), HashMap::new()),
             ("names".to_string(), HashMap::new()),
         ])
     );
@@ -637,32 +705,37 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                     vars.insert(expr[1].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
+                            ("str".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
+                            ("str".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                     ]));
+                    vars.get_mut("funcs").unwrap().get_mut(&expr[0]).unwrap().insert(expr[2].clone(), vec![]);
             } else {
-                stmts.push(parse_fnc_dec(&expr[1], &expr[3..expr.len()-1], &vars));
-                    vars.insert(expr[1].clone(), HashMap::from([
+                stmts.push(parse_fnc_dec(&expr[2], &expr[4..expr.len()-1], &vars));
+                    vars.insert(expr[2].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
+                            ("str".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                         ("vars".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
+                            ("str".to_string(), vec![]),
                             ("names".to_string(), vec![]),]
                         )),
                     ]));
-                    for arg in &expr[3..expr.len()-1] {
+                    for arg in &expr[4..expr.len()-1] {
                         if !is_int_lit(arg) {
                             vars.get_mut(&expr[1]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
                         }
                     } 
             }
-            curr_func = expr[1].clone();
+            curr_func = expr[2].clone();
         } else if is_ret(expr.clone()) {
             stmts.push(parse_ret(expr.clone(), &vars, &curr_func));
         } else if is_fnc_call(expr.clone()) {

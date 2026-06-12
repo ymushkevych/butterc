@@ -3,8 +3,13 @@ mod tokenizer;
 mod parser;
 mod generator;
 
+
 fn main() {
     let arguments: Vec<String> = env::args().collect();  
+    if arguments.len() == 0 {
+        eprintln!("\x1b[1mCompilationError\x1b[0m: Expected file");
+        exit(1);
+    }
     if get_ext(arguments[1].clone()) == "btr".to_string() {
         let tokens: Vec<String> = tokenizer::tokenize(arguments[1].clone(), &arguments[0..]);
         let code: Vec<Vec<String>> = parser::parse(tokens,false, vec![]);
@@ -13,7 +18,7 @@ fn main() {
         link(get_name(arguments[1].clone()));
     } else {
         eprintln!("\x1b[1mCompilationError\x1b[0m: Incompatible File Extension\nExpected `.btr``");
-        eprintln!("For proper usage, run `./butterc ../file.btr`");
+        eprintln!("For proper usage, run `butterc file.btr`");
         exit(1);    
     }
 
@@ -66,9 +71,7 @@ fn get_ext(file: String) -> String {
 
 fn get_name(file: String) -> String{
     let split: Vec<&str> = file.split('/').collect();
-    let fname = split[split.len()-1];
-    let name: Vec<&str> = fname.split('.').collect();
-    return name[0].to_string();
+    return split[split.len()-1].to_string();
 }
 
 fn assemble(name: String) {
@@ -78,12 +81,16 @@ fn assemble(name: String) {
         Ok(_) => {},
         Err(_) => {
             eprintln!("\x1b[1mCompilationError\x1b[0m: Failed to assemble");
+            eprintln!("Ensure nasm is installed");
+            exit(1);
         },
     }
 }
 
 fn link(name: String) {
-    match Command::new("ld").args(&["main.o", "-o", &name]).output() {
+    let o_name = name.as_str().to_owned() + ".o";
+    let bin_name = name.as_str().to_owned().split('.').collect::<Vec<&str>>()[0].to_string();
+    match Command::new("ld").args(&[&o_name, "-o", &bin_name]).output() {
         Ok(_) => {},
         Err(_) => {
             eprintln!("\x1b[1mCompilationError\x1b[0m: Failed to link");
