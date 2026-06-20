@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{BufWriter, Write}, process::exit};
 
+
 fn is_fnc_call(expr: &String) -> bool {
     if expr.contains("fcall") {
         return true;
@@ -92,8 +93,8 @@ fn gen_constant(name : &String, _type: &String, value: &[String], mut asm: Vec<S
 fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     let mut stmt: Vec<String> = vec![];
     for term in prf {
-        asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
-        if term.chars().nth(0) == Some('"') && !vars.get("const").unwrap().get("str").unwrap().contains_key(term) {
+        if term.chars().nth(0) == Some('"') && !vars.get("const").unwrap().get("str").unwrap().contains_key(term){
+            asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
             for i in 1..term.len()-1 {
                 let ch = term.chars().nth(i).unwrap();
                 stmt.insert(0, format!("('{}' << {})", ch, (i-1) * 8));
@@ -110,6 +111,7 @@ fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
             }
         } else {
             if is_bin_expr(term) {
+                asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
                 asm = gen_bin_expr(&[term.to_owned()], vars, curr_func, true, asm);
                 asm.push("    pop rax".to_string());
                 asm.push(format!("    add rax, 48"));
@@ -126,17 +128,29 @@ fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                 let term: Vec<&str> = term.split_ascii_whitespace().collect();
                 let term: Vec<String> = term.iter().map(|&a| a.to_string()).collect();
                 asm = gen_fnc_call(&term[1],&term[2..], vars, curr_func, true,asm);
-                asm.push(format!("    add rax, 48"));
-                asm.push(format!("    mov rbx, ('' << {})", 8));
-                asm.push(format!("    or rax, rbx"));
-                asm.push("    push rax".to_string());
-                asm.push("    mov rax, 1".to_string());
-                asm.push("    mov rdi, 2".to_string());
-                asm.push("    mov rsi, rsp".to_string());
-                asm.push(format!("    mov rdx, {}", 2));
-                asm.push("    syscall".to_string());
-                asm.push("    add rsp, 16".to_string());
+                if vars.get("funcs").unwrap().get("str").unwrap().contains_key(&term[1]) {
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 2".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", vars.get("funcs").unwrap().get("str").unwrap().get(&term[1]).unwrap()[0]));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 512".to_string());
+                } else {
+                    asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+                    asm.push(format!("    add rax, 48")); 
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 2".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                }
+                
             } else {
+                asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
                 if vars.get(curr_func).unwrap().get("stack").unwrap().contains_key(term)
                 {
                     let mut offset = vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().get(term).unwrap()[0].parse::<i32>().unwrap();
@@ -164,8 +178,8 @@ fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                         asm.push(format!("    mov rdx, {}", 2));
                         asm.push("    syscall".to_string());
                         asm.push("    add rsp, 16".to_string());
-                    } 
-                } else if vars.get("consts").unwrap().get("int").unwrap().contains_key(term) {
+                    }                
+                } else if vars.get("const").unwrap().get("int").unwrap().contains_key(term)  {
                     asm.push(format!("    mov rax, {}", term));
                     asm.push(format!("    add rax, 48"));
                     asm.push(format!("    mov rbx, ('' << {})", 8));
@@ -206,8 +220,8 @@ fn gen_print_e(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
 fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
     let mut stmt: Vec<String> = vec![];
     for term in prf {
-        asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
-        if term.chars().nth(0) == Some('"') && !vars.get("const").unwrap().get("str").unwrap().contains_key(term) {
+        if term.chars().nth(0) == Some('"') && !vars.get("const").unwrap().get("str").unwrap().contains_key(term){
+            asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
             for i in 1..term.len()-1 {
                 let ch = term.chars().nth(i).unwrap();
                 stmt.insert(0, format!("('{}' << {})", ch, (i-1) * 8));
@@ -224,6 +238,7 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
             }
         } else {
             if is_bin_expr(term) {
+                asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
                 asm = gen_bin_expr(&[term.to_owned()], vars, curr_func, true, asm);
                 asm.push("    pop rax".to_string());
                 asm.push(format!("    add rax, 48"));
@@ -240,17 +255,29 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                 let term: Vec<&str> = term.split_ascii_whitespace().collect();
                 let term: Vec<String> = term.iter().map(|&a| a.to_string()).collect();
                 asm = gen_fnc_call(&term[1],&term[2..], vars, curr_func, true,asm);
-                asm.push(format!("    add rax, 48"));
-                asm.push(format!("    mov rbx, ('' << {})", 8));
-                asm.push(format!("    or rax, rbx"));
-                asm.push("    push rax".to_string());
-                asm.push("    mov rax, 1".to_string());
-                asm.push("    mov rdi, 1".to_string());
-                asm.push("    mov rsi, rsp".to_string());
-                asm.push(format!("    mov rdx, {}", 2));
-                asm.push("    syscall".to_string());
-                asm.push("    add rsp, 16".to_string());
+                if vars.get("funcs").unwrap().get("str").unwrap().contains_key(&term[1]) {
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 1".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", vars.get("funcs").unwrap().get("str").unwrap().get(&term[1]).unwrap()[0]));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 512".to_string());
+                } else {
+                    asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
+                    asm.push(format!("    add rax, 48")); 
+                    asm.push(format!("    mov rbx, ('' << {})", 8));
+                    asm.push(format!("    or rax, rbx"));
+                    asm.push("    push rax".to_string());
+                    asm.push("    mov rax, 1".to_string());
+                    asm.push("    mov rdi, 1".to_string());
+                    asm.push("    mov rsi, rsp".to_string());
+                    asm.push(format!("    mov rdx, {}", 2));
+                    asm.push("    syscall".to_string());
+                    asm.push("    add rsp, 16".to_string());
+                }
+                
             } else {
+                asm = move_to_stack(&"rax".to_string(), &"0".to_string(), asm);
                 if vars.get(curr_func).unwrap().get("stack").unwrap().contains_key(term)
                 {
                     let mut offset = vars.get(curr_func).unwrap().get(&"stack".to_string()).unwrap().get(term).unwrap()[0].parse::<i32>().unwrap();
@@ -278,7 +305,7 @@ fn gen_print_f(prf: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
                         asm.push(format!("    mov rdx, {}", 2));
                         asm.push("    syscall".to_string());
                         asm.push("    add rsp, 16".to_string());
-                    } 
+                    }                
                 } else if vars.get("const").unwrap().get("int").unwrap().contains_key(term)  {
                     asm.push(format!("    mov rax, {}", term));
                     asm.push(format!("    add rax, 48"));
@@ -322,8 +349,15 @@ fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, HashMap<S
         let f = vars.get(name).unwrap();
         let args = args.concat();
         let args: Vec<&str> = args.split(',').collect();
-        let args: Vec<String> = args.iter().map(|&s| s.to_string()).collect();
+        let mut args: Vec<String> = args.iter().map(|&s| s.to_string()).collect();
+        if args[0] == "" {
+            args.remove(0);
+        }
         if args.len() == f.get(&"args".to_string()).unwrap().get("names").unwrap().len() {
+            if vars.get("funcs").unwrap().get("str").unwrap().contains_key(name) {
+                asm.push("    sub rsp, 512".to_string());
+                asm.push("    lea rdi, [rsp]".to_string());
+            }
             if args.len() > 0 {
                 for i in 0..args.len() {
                     let arg = &args[i];
@@ -360,6 +394,9 @@ fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, HashMap<S
             exit(1);
         }
         asm.push(format!("    call {}", name));
+        if vars.get("funcs").unwrap().get("str").unwrap().contains_key(name) && !in_print {
+            asm.push(format!("    add rsp, 512"));
+        }
         asm.push(format!("    add rsp, {}", args.len()*8));
     } else {
         eprintln!("\x1b[1mParserError\x1b[0m: Used undefined function `{}`", name);
@@ -368,20 +405,52 @@ fn gen_fnc_call(name: &String, args: &[String], vars: &HashMap<String, HashMap<S
 }
 
 fn gen_ret(ret_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_func: &String, mut asm: Vec<String>) -> Vec<String> {
-    if ret_val.len() > 1 
-    || has_bin_expr(&ret_val)
-    || is_fnc_call(&ret_val[0]) {
-        if has_bin_expr(ret_val) {
+    if vars.get("funcs").unwrap().get("int").unwrap().contains_key(curr_func) {
+        if has_bin_expr(&ret_val) {
             asm = gen_bin_expr(ret_val, vars, curr_func, false, asm);
             asm.push("    pop rax".to_string());
         } else if is_fnc_call(&ret_val[0]) {
             let ret_val: Vec<&str> = ret_val[0].split(' ').collect();
             let args: Vec<String> = ret_val[2..].iter().map(|s| s.to_string()).collect();
             asm = gen_fnc_call(&ret_val[1].to_string(), &args[0..], vars, curr_func, false, asm);
-        }
-    } else {
-        if is_int_lit(&ret_val[0]) {
+        } else if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&ret_val[0]) 
+        || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&ret_val[0]).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+                    offset += 8;
+                }
+            }
+            asm.push(format!("    mov rax, [rsp + {:?}]", offset))
+        } else {
             asm.push(format!("    mov rax, {}", ret_val[0]));
+        }
+    } else if vars.get("funcs").unwrap().get("str").unwrap().contains_key(curr_func) {
+        if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&ret_val[0]) 
+        || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+            let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&ret_val[0]).unwrap()[0].parse::<i32>().unwrap();
+            offset = (get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap())-offset)*8;
+            if curr_func != "" {
+                if vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
+                    offset += 8;
+                }
+            }
+            for i in 0..get_var_size(vars.get(curr_func).unwrap().get("stack").unwrap(), &ret_val[0]) {
+                asm.push(format!("    mov al, [rsp+{}]", offset - i*8));
+                asm.push(format!("    mov [rdi+{}], al", i));
+            }
+        } else {
+            for i in 0..ret_val.len() {
+                asm.push(format!("    mov byte [rdi+{}], '{}'", i, ret_val[i]));
+            }
+            asm.push(format!("    mov byte [rdi+{}], 0", ret_val.len()));
+        }
+    } else if vars.get("funcs").unwrap().get("bool").unwrap().contains_key(curr_func) {
+        if is_fnc_call(&ret_val[0]) {
+            let ret_val: Vec<&str> = ret_val[0].split(' ').collect();
+            let args: Vec<String> = ret_val[2..].iter().map(|s| s.to_string()).collect();
+            asm = gen_fnc_call(&ret_val[1].to_string(), &args[0..], vars, curr_func, false, asm);
         } else if vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&ret_val[0]) 
         || vars.get(curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&ret_val[0]) {
             let mut offset = vars.get(curr_func).unwrap().get("stack").unwrap().get(&ret_val[0]).unwrap()[0].parse::<i32>().unwrap();
@@ -396,7 +465,7 @@ fn gen_ret(ret_val: &[String], vars: &HashMap<String, HashMap<String, HashMap<St
             asm.push(format!("    mov rax, {}", ret_val[0]));
         }
     }
-    asm.push(format!("    add rsp, {}", 8*vars.get(curr_func).unwrap().get("vars").unwrap().get("names").unwrap().len()));
+    asm.push(format!("    add rsp, {}", 8*(1+get_stack_height(vars.get(curr_func).unwrap().get("stack").unwrap()))));
     asm.push("    ret".to_string());
 
     return asm;
@@ -860,14 +929,14 @@ fn gen_var_var(var_val: &[String], vars: &HashMap<String, HashMap<String, HashMa
                 asm.push("    mov rax, ".to_string() + &var_val[0]);
                 asm.push("    push rax".to_string());
             } else {
-                asm.push("    mov rax, ".to_string() + &format!("('{}' << 0)", var_val[0].chars().nth(0).unwrap()));
+                asm.push("    mov al, ".to_string() + &format!("'{}'", var_val[0].chars().nth(0).unwrap()));
                 asm.push("    push rax".to_string());
             }
         } else {
             for word in var_val {
                 for i in (0..word.len()).rev() {
                     let ch: char = word.chars().nth(i).unwrap();
-                    asm.push("    mov rax, ".to_string() + &format!("('{ch}' << 0)"));
+                    asm.push("    mov al, ".to_string() + &format!("'{ch}'"));
                     asm.push("    push rax".to_string());
                 }
             } 
@@ -880,6 +949,14 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
     let mut vars: HashMap<String, HashMap<String, HashMap<String, Vec<String>>>> = HashMap::new();
     vars.insert(
         "const".to_string(),
+        HashMap::from([
+            ("int".to_string(), HashMap::new()),
+            ("bool".to_string(), HashMap::new()),
+            ("str".to_string(), HashMap::new()),
+        ])
+    );
+    vars.insert(
+        "funcs".to_string(),
         HashMap::from([
             ("int".to_string(), HashMap::new()),
             ("bool".to_string(), HashMap::new()),
@@ -972,11 +1049,11 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot nest functions");
                 exit(1);
             }
-            funcs = gen_fnc_dec(&stmt[1], funcs);
-            let args = &stmt.clone()[2..stmt.clone().len()].concat();
+            funcs = gen_fnc_dec(&stmt[2], funcs);
+            let args = &stmt.clone()[3..stmt.clone().len()].concat();
             let args = args.split(',').collect::<Vec<&str>>();
             let args = args[0..].iter().map(|&s| s.to_string()).collect::<Vec<String>>();
-            vars.insert(stmt[1].clone(), HashMap::from([
+            vars.insert(stmt[2].clone(), HashMap::from([
                 ("args".to_string(), HashMap::from([
                     ("int".to_string(), vec![]),
                     ("str".to_string(), vec![]),
@@ -993,16 +1070,20 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
                     ("".to_string(), vec![String::from("-1")]),
                 ])),
             ]));
-            curr_func = stmt[1].clone();
+            vars.get_mut("funcs").unwrap().get_mut(&stmt[1]).unwrap().insert(
+                stmt[2].clone(),
+                vec![]
+            );
+            curr_func = stmt[2].clone();
 
             for arg in args {
                 if arg != "" {
                     let arg = arg.split("COL").collect::<Vec<&str>>();
                     let _type = arg[0];
                     let value = arg[1];
-                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&_type.to_string()).unwrap().push(value.to_string());
-                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&"names".to_string()).unwrap().push(value.to_string());
-                    vars.get_mut(&stmt[1]).unwrap().get_mut(&"stack".to_string()).unwrap().insert(
+                    vars.get_mut(&stmt[2]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&_type.to_string()).unwrap().push(value.to_string());
+                    vars.get_mut(&stmt[2]).unwrap().get_mut(&"args".to_string()).unwrap().get_mut(&"names".to_string()).unwrap().push(value.to_string());
+                    vars.get_mut(&stmt[2]).unwrap().get_mut(&"stack".to_string()).unwrap().insert(
                         value.to_string(), 
                         vec![stack_height.to_string()]
                     );
@@ -1036,6 +1117,19 @@ pub fn write_asm(stmts: Vec<Vec<String>>, name: String, global_start: bool, has_
         } else if &stmt[0] == "ret" {
             if in_func {
                 funcs = gen_ret(&stmt[1..], &vars, &curr_func,funcs);
+                if vars.get("funcs").unwrap().get("str").unwrap().contains_key(&curr_func) {
+                    if vars.get(&curr_func).unwrap().get("vars").unwrap().get("names").unwrap().contains(&stmt[1..][0])
+                    ||vars.get(&curr_func).unwrap().get("args").unwrap().get("names").unwrap().contains(&stmt[1..][0]) {
+                        let size = get_var_size(&vars.get_mut(&curr_func).unwrap().get_mut("stack").unwrap(), &stmt[1]);
+                        vars.get_mut("funcs").unwrap().get_mut("str").unwrap().get_mut(&curr_func).unwrap().push(size.to_string());
+                    } else if is_fnc_call(&stmt[1..][0]) {
+                        let size = vars.get("funcs").unwrap().get("str").unwrap().get(&stmt[1]).unwrap()[0].clone();
+                        vars.get_mut("funcs").unwrap().get_mut("str").unwrap().get_mut(&curr_func).unwrap().push(size.to_string());
+                    } else {
+
+                        vars.get_mut("funcs").unwrap().get_mut("str").unwrap().get_mut(&curr_func).unwrap().push((stmt.len()-1).to_string());
+                    }
+                }
             } else {
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: `ret` can only be used within a function.\nTo exit the program, use `out`");
                 exit(1);
