@@ -86,10 +86,22 @@ fn parse_str(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<Stri
 fn parse_ret(expr: Vec<String>, vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["ret".to_string()]; 
     if vars.get("funcs").unwrap().get("int").unwrap().contains_key(curr_scope) {
+        if vars.get("const").unwrap().get("int").unwrap().contains_key(&expr[1]) {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot return constants");
+            exit(1);
+        }
         stmt = parse_int(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
-    }else if vars.get("funcs").unwrap().get("str").unwrap().contains_key(curr_scope) {
+    } else if vars.get("funcs").unwrap().get("str").unwrap().contains_key(curr_scope) {
+        if vars.get("const").unwrap().get("str").unwrap().contains_key(&expr[1]) {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot return constants");
+            exit(1);
+        }
         stmt = parse_str(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
     } else if vars.get("funcs").unwrap().get("bool").unwrap().contains_key(curr_scope) {
+        if vars.get("const").unwrap().get("bool").unwrap().contains_key(&expr[1]) {
+            eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot return constants");
+            exit(1);
+        }
         stmt = parse_bool(&expr[1..], vars, &"var".to_string(), curr_scope, stmt)
     } else {
         exit(11);
@@ -119,7 +131,7 @@ fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
     return stmt;
 }
 
-fn parse_fnc_dec(name: &String, args: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
+fn parse_fnc_dec(_type: &String, name: &String, args: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
     let mut stmt: Vec<String> = vec!["fdec".to_string(), name.to_string()];
     if vars.contains_key(name) {
         eprintln!("\x1b[1mParserError\x1b[0m: cannot redeclare existing functions");
@@ -544,7 +556,6 @@ fn is_fnc_call(expr:Vec<String>) -> bool {
         return false;
     }
     if expr[1] != "PARO" {
-        println!("{:?}", expr);
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `(` after function name in function call");
         exit(1);
     }
@@ -716,7 +727,8 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
             expr.push(tokens[j].clone().to_string());
             j += 1;
         }   
-        if tokens[j] == "CURLC".to_string() {
+        let last_tok = tokens[j].clone();
+        if last_tok == "CURLC".to_string() {
             stmts.push(vec!["endfunc".to_string()]);
             curr_func = String::from("");
         } else if is_out(expr.clone()) {
@@ -741,8 +753,12 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
         } else if is_print(expr.clone()) {
             stmts.push(parse_print(&expr[0], &expr[1..]));
         } else if is_fnc_dec(expr.clone()) {
+            if last_tok != "CURLO" {
+                eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `{{` after function declaration");
+                exit(1);
+            } 
             if expr.len() == 4 {
-                stmts.push(parse_fnc_dec(&expr[1], &[], &vars));
+                stmts.push(parse_fnc_dec(&expr[0], &expr[2], &[], &vars));
                     vars.insert(expr[1].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
@@ -759,7 +775,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                     ]));
                     vars.get_mut("funcs").unwrap().get_mut(&expr[0]).unwrap().insert(expr[2].clone(), vec![]);
             } else {
-                stmts.push(parse_fnc_dec(&expr[2], &expr[4..expr.len()-1], &vars));
+                stmts.push(parse_fnc_dec(&expr[0], &expr[2], &expr[4..expr.len()-1], &vars));
                     vars.insert(expr[2].clone(), HashMap::from([
                         ("args".to_string(), HashMap::from(
                             [("int".to_string(), vec![]),
@@ -777,7 +793,7 @@ pub fn parse(tokens: Vec<String>, check_for_out: bool) -> Vec<Vec<String>> {
                     vars.get_mut("funcs").unwrap().get_mut(&expr[0]).unwrap().insert(expr[2].clone(), vec![]);
                     for arg in &expr[4..expr.len()-1] {
                         if !is_int_lit(arg) {
-                            vars.get_mut(&expr[1]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
+                            vars.get_mut(&expr[2]).unwrap().get_mut("args").unwrap().get_mut("int").unwrap().push(arg.clone());
                         }
                     } 
             }
