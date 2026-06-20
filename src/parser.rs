@@ -1,4 +1,4 @@
-use std::{process::exit, collections::HashMap};
+use std::{collections::HashMap, process::exit};
 
 const TYPES: [&str; 4] = ["int", "vec", "str", "bool"];
 const ATTRIBUTES: [&str; 2] = ["var", "const"];
@@ -49,7 +49,7 @@ fn parse_str(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<Stri
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
                 exit(1);
             }
-            if vars.get("func").unwrap().get("str").unwrap().contains_key(&var[0]) {
+            if vars.get("funcs").unwrap().get("str").unwrap().contains_key(&var[0]) {
                 stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
             } else {
                 eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
@@ -132,7 +132,7 @@ fn parse_fnc_call(name: &String, args: &[String]) -> Vec<String> {
 }
 
 fn parse_fnc_dec(_type: &String, name: &String, args: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
-    let mut stmt: Vec<String> = vec!["fdec".to_string(), name.to_string()];
+    let mut stmt: Vec<String> = vec!["fdec".to_string(), _type.to_string(), name.to_string()];
     if vars.contains_key(name) {
         eprintln!("\x1b[1mParserError\x1b[0m: cannot redeclare existing functions");
         exit(1);
@@ -176,13 +176,13 @@ fn parse_fnc_dec(_type: &String, name: &String, args: &[String], vars: &HashMap<
     return stmt;
 }
 
-fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>) -> Vec<String> {
+fn parse_var_ass(name: &String, value: &[String], vars: &HashMap<String, HashMap<String, HashMap<String, Vec<String>>>>, curr_scope: &String) -> Vec<String> {
     if vars.get("const").unwrap().get("names").unwrap().contains_key(name) {
         eprintln!("\x1b[1mParserError\x1b[0m: constant variables cannot be reassigned after creation");
         exit(1);
     }
     let mut stmt: Vec<String> = vec!["vass".to_string(), name.to_string()];
-    if value.len() > 1 {
+    if if is_bin_expr(value) {
         stmt = parse_bin_expr(value, &"var".to_string(), stmt);
     } else {
         if vars.get(curr_scope).unwrap().get("vars").unwrap().get("int").unwrap().contains(name) 
@@ -466,7 +466,7 @@ fn parse_int(var: &[String], vars: &HashMap<String, HashMap<String, HashMap<Stri
                 eprintln!("\x1b[1mSyntaxError\x1b[0m: Cannot use functions in constant variables");
                 exit(1);
             }
-            if funcs.get("str").unwrap().contains_key(&var[0]) {
+            if vars.get("funcs").unwrap().get("str").unwrap().contains_key(&var[0]) {
                 stmt = parse_inline_fnc_call(&var[0], &var[2..var.len()-1], stmt);
             } else {
                 eprintln!("\x1b[1mParserError\x1b[0m: Type Mismatch");
@@ -602,7 +602,7 @@ fn is_fnc_dec(expr: Vec<String>) -> bool {
     if expr[1] != "fnc".to_string() {
         return false;
     }
-    if expr.len() < 4 {
+    if expr.len() < 5 {
         eprintln!("\x1b[1mSyntaxError\x1b[0m: Incomplete Function Declaration Expression");
         exit(1);
     }
