@@ -97,7 +97,7 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
     while i < chars.len() {
         let _char: char = chars[i];
         if !in_comment {
-            if _char == '~' {
+            if _char == '%' {
                 in_comment = true;
                 i += 1;
                 continue;
