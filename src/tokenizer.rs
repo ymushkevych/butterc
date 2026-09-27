@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fs, process::exit};
+use std::{fs, process::exit};
+
 
 fn tokenize_lists(chars: &Vec<char>, mut buf: Vec<char>, mut i: usize) -> Vec<String> {
     while i < chars.len()
@@ -20,7 +21,7 @@ fn tokenize_lists(chars: &Vec<char>, mut buf: Vec<char>, mut i: usize) -> Vec<St
     if i < chars.len() {
         buf.push(chars[i]);
     } else {
-        println!("\x1b[1mSyntaxError\x1b[0m: Expected `]` to end list");
+        eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `]` to end list");
         exit(1);
     }
     i += 1;
@@ -44,7 +45,7 @@ fn tokenize_strings(chars: &Vec<char>, mut buf: Vec<char>, mut i: usize) -> Vec<
     if i < chars.len() {
         buf.push(chars[i]);
     } else {
-        println!("\x1b[1mSyntaxError\x1b[0m: Expected `\"` to end string");
+        eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `\"` to end string");
         exit(1);
     }
     i += 1;
@@ -56,21 +57,7 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
     let mut in_string: bool = false;
     let mut in_list: bool = false;
     let mut in_comment: bool = false;
-    let mut token_pool= HashMap::new();
-    token_pool.insert(";".to_string(), "SEMI".to_string());
-    token_pool.insert("+".to_string(), "PLUS".to_string());
-    token_pool.insert("=".to_string(), "EQ".to_string());
-    token_pool.insert("-".to_string(), "MIN".to_string());
-    token_pool.insert(">".to_string(), "GT".to_string());
-    token_pool.insert("*".to_string(), "TIMES".to_string());
-    token_pool.insert("/".to_string(), "DIV".to_string());
-    token_pool.insert("{".to_string(), "CURLO".to_string());
-    token_pool.insert("}".to_string(), "CURLC".to_string());
-    token_pool.insert("(".to_string(), "PARO".to_string());
-    token_pool.insert(")".to_string(), "PARC".to_string());
-    token_pool.insert(",".to_string(), "COMMA".to_string());
-    token_pool.insert(":".to_string(), "COL".to_string());
-    token_pool.insert("&".to_string(), "AMP".to_string());
+
     //read file into a char vector
     let mut chars: Vec<char> = vec![];
     let lines:Result<String, std::io::Error> = fs::read_to_string(&code);
@@ -82,9 +69,9 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
     if chars == ['\n']
     || chars.len() == 0
     || chars.iter().all(|x| [' ', '\n'].contains(x)) {
-        println!("\x1b[1mEmptyFileError\x1b[0m: Empty file provided");
-        println!("All `.btr` files must contain a `main` function");
-        println!("Try inserting `int fnc main() {}`", "{}");
+        eprintln!("\x1b[1mEmptyFileError\x1b[0m: Empty file provided");
+        eprintln!("All `.btr` files must contain a `main` function");
+        eprintln!("Try inserting `int fnc main() {}`", "{}");
         exit(1);
     }
 
@@ -135,35 +122,31 @@ pub fn tokenize(code: String, _flags: &[String]) -> Vec<String> {
                         }
                         tokens.push(buf.iter().collect());
                         buf.clear();
-                    }
-                    else if token_pool.contains_key(&_char.to_string()) {
-                        let token: String = token_pool.get(&_char.to_string()).cloned().unwrap_or_default();
-                        if token == "MIN" {
-                            if i + 1 < chars.len() &&
-                            token_pool.get(&chars[i+1].to_string()).cloned().unwrap_or_default() == "GT" { 
-                                tokens.push("LET".to_string()); //since '->' is a single token for var dec, convert sequence of "MIN" and "GT" into "LET"
-                                i += 1;
-                            } else {
-                                tokens.push(token); 
-                            }
-                        } else {
-                            tokens.push(token); 
-                        }
-                        i += 1;
-                } else {
-                    if _char == '\n' {
-                        if tokens[tokens.len()-1] == "SEMI" 
-                        || tokens[tokens.len()-1] == "CURLO"
-                        || tokens[tokens.len()-1] == "CURLC" {
+                    } else if _char == '\n' {
+                        if tokens.len() == 0 || 
+                        tokens[tokens.len()-1] == ';'.to_string() || 
+                        tokens[tokens.len()-1] == '{'.to_string() ||
+                        tokens[tokens.len()-1] == '}'.to_string(){
                             i+=1;
                         } else {
-                            println!("\x1b[1mSyntaxError\x1b[0m: Expected `;`");
+                            eprintln!("\x1b[1mSyntaxError\x1b[0m: Expected `;`");
                             exit(1);
                         }
                     } else {
-                        i+=1;
+                        if _char == '-' && chars[i+1] == '>' {
+                            tokens.push("->".to_string());
+                            i+=1;
+                        } else if _char == '>' && chars[i+1] == '=' {
+                            tokens.push(">=".to_string());
+                            i+=1;
+                        } else if _char == '<' && chars[i+1] == '=' {
+                            tokens.push("<=".to_string());
+                            i+=1;
+                        } else if !_char.is_ascii_whitespace() {
+                            tokens.push(_char.to_string());
+                        }
+                        i += 1;
                     }
-                }
                 } 
                 else {
                     let v = tokenize_lists(&chars, buf.clone(), i);
