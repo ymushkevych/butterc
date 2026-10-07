@@ -14,7 +14,7 @@ if ! command -v nasm &> /dev/null; then
 fi
 
 if ! command -v ld &> /dev/null; then
-	echo "installing ld"
+	echo "Installing ld"
 	echo "... and other binary utils"
 	sudo apt install binutils
 fi
