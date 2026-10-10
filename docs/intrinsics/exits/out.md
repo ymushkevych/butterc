@@ -8,6 +8,8 @@
 
 `out` can in theory parse any unsigned 64-bit value but x64 only allows exiting with 8-bit integers
 
+if the current function is of type `null`, `out` must be used
+
 ## Usage
 
 `out` is used as `out CODE;` where `CODE` is an integer
