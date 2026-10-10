@@ -2,7 +2,7 @@
 
 ## About
 
-`print` is the butter intrinsic for printing string literals to the terminal stdout (fd=1)
+`print` is the butter intrinsic for printing string literals to the terminal via stdout (fd=1)
 
 `print` does not accept expressions of any kind, including string concatenation, and only accepts singular string literals
 
