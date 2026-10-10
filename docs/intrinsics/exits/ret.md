@@ -31,4 +31,5 @@ unless a function has the `null` type, it must contain a `ret`
 
     int fnc main() {
         printf return_example(); % <- function is called here
+        ret 0;
     }
